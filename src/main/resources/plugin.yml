@@ -1,0 +1,18 @@
+name: MagicFindDrops
+version: ${version}
+main: com.eisiadev.enceladus.magicfind.MagicFindPlugin
+api-version: 1.20
+author: YourName
+depend: [MythicMobs, Skript]
+description: MythicMobs drop modifier with Magic Find system
+
+commands:
+  magicfind:
+    description: Magic Find command
+    usage: /magicfind reload
+    permission: magicfind.admin
+
+permissions:
+  magicfind.admin:
+    description: Admin permission for Magic Find
+    default: op
