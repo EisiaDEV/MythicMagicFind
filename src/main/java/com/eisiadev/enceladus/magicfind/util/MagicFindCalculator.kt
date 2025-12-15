@@ -1,5 +1,7 @@
 package com.eisiadev.enceladus.magicfind.util
 
+import ch.njol.skript.aliases.ItemType
+import ch.njol.skript.variables.Variables
 import io.lumine.mythic.bukkit.MythicBukkit
 import io.lumine.mythic.bukkit.events.MythicMobDeathEvent
 import org.bukkit.Bukkit
@@ -22,15 +24,8 @@ object MagicFindCalculator {
     private var configFile: File? = null
 
     data class RarityTier(
-        val id: String,
-        val enabled: Boolean,
-        val minChance: Double,
-        val maxChance: Double,
-        val message: String,
-        val sound: String,
-        val volume: Float,
-        val pitch: Float,
-        val broadcast: Boolean
+        val id: String, val enabled: Boolean, val minChance: Double, val maxChance: Double,
+        val message: String, val sound: String, val volume: Float, val pitch: Float, val broadcast: Boolean
     )
 
     private var rarityTiers = mutableListOf<RarityTier>()
@@ -39,11 +34,7 @@ object MagicFindCalculator {
 
     fun initialize(plugin: JavaPlugin) {
         configFile = File(plugin.dataFolder, "config.yml")
-
-        if (!configFile!!.exists()) {
-            plugin.saveResource("config.yml", false)
-        }
-
+        if (!configFile!!.exists()) plugin.saveResource("config.yml", false)
         loadConfig()
     }
 
@@ -59,15 +50,9 @@ object MagicFindCalculator {
             blacklistedItems.clear()
             blacklistedDropTables.clear()
 
-            // 블랙리스트 로드
-            val blacklistSection = config.getConfigurationSection("blacklist")
-            if (blacklistSection != null) {
-                blacklistedItems.addAll(
-                    blacklistSection.getStringList("items").map { it.uppercase() }
-                )
-                blacklistedDropTables.addAll(
-                    blacklistSection.getStringList("droptables")
-                )
+            config.getConfigurationSection("blacklist")?.let { section ->
+                blacklistedItems.addAll(section.getStringList("items").map { it.uppercase() })
+                blacklistedDropTables.addAll(section.getStringList("droptables"))
                 println("[MagicFind] Loaded ${blacklistedItems.size} blacklisted items and ${blacklistedDropTables.size} blacklisted droptables")
             }
 
@@ -77,24 +62,22 @@ object MagicFindCalculator {
             }
 
             section.getKeys(false).forEach { key ->
-                val tierSection = section.getConfigurationSection(key) ?: return@forEach
-
-                rarityTiers.add(RarityTier(
-                    id = key,
-                    enabled = tierSection.getBoolean("enabled", true),
-                    minChance = tierSection.getDouble("min_chance", 0.0),
-                    maxChance = tierSection.getDouble("max_chance", 1.0),
-                    message = tierSection.getString("message", "{item} x{amount}") ?: "{item} x{amount}",
-                    sound = tierSection.getString("sound", "ENTITY_EXPERIENCE_ORB_PICKUP") ?: "ENTITY_EXPERIENCE_ORB_PICKUP",
-                    volume = tierSection.getDouble("volume", 1.0).toFloat(),
-                    pitch = tierSection.getDouble("pitch", 1.0).toFloat(),
-                    broadcast = tierSection.getBoolean("broadcast", false)
-                ))
+                section.getConfigurationSection(key)?.let { tier ->
+                    rarityTiers.add(RarityTier(
+                        id = key,
+                        enabled = tier.getBoolean("enabled", true),
+                        minChance = tier.getDouble("min_chance", 0.0),
+                        maxChance = tier.getDouble("max_chance", 1.0),
+                        message = tier.getString("message") ?: "{item} x{amount}",
+                        sound = tier.getString("sound") ?: "ENTITY_EXPERIENCE_ORB_PICKUP",
+                        volume = tier.getDouble("volume", 1.0).toFloat(),
+                        pitch = tier.getDouble("pitch", 1.0).toFloat(),
+                        broadcast = tier.getBoolean("broadcast", false)
+                    ))
+                }
             }
 
-            // 확률 범위 순으로 정렬 (높은 확률 -> 낮은 확률)
             rarityTiers.sortByDescending { it.maxChance }
-
             println("[MagicFind] Loaded ${rarityTiers.size} rarity tiers from config")
         } catch (e: Exception) {
             e.printStackTrace()
@@ -126,15 +109,10 @@ object MagicFindCalculator {
             val getStringListMethod = config::class.java.getMethod("getStringList", String::class.java)
             @Suppress("UNCHECKED_CAST")
             val rawDropLines = getStringListMethod.invoke(config, "Drops") as? List<String> ?: emptyList()
-
             if (rawDropLines.isEmpty()) return
 
             event.drops.clear()
-
-            rawDropLines.forEach { line ->
-                processConfigLine(line, mfMultiplier, event, killer, magicFind)
-            }
-
+            rawDropLines.forEach { line -> processConfigLine(line, mfMultiplier, event, killer, magicFind) }
         } catch (e: Exception) {
             e.printStackTrace()
             println("!!! MagicFind Error: 오류 발생으로 기존 드롭 복구 시도 !!!")
@@ -147,41 +125,30 @@ object MagicFindCalculator {
 
         val parts = trimmed.split(Regex("\\s+"), limit = 3)
         val itemDef = parts[0]
-
         if (itemDef.equals("exp", ignoreCase = true) || itemDef.equals("experience", ignoreCase = true)) return
 
         val amountStr = parts.getOrNull(1) ?: "1"
         val chanceStr = parts.getOrNull(2) ?: "1.0"
-
         val isDropTable = !itemDef.contains("{") && Material.getMaterial(itemDef.uppercase()) == null
 
         if (isDropTable) {
-            val dropManager = MythicBukkit.inst().dropManager
-            val dropTableOpt = dropManager.getDropTable(itemDef)
-
+            val dropTableOpt = MythicBukkit.inst().dropManager.getDropTable(itemDef)
             if (dropTableOpt.isPresent) {
-                // 드롭테이블이 블랙리스트에 있는지 확인
                 val isBlacklisted = blacklistedDropTables.contains(itemDef)
-
                 val tableChance = chanceStr.toDoubleOrNull() ?: 1.0
                 val tableRepeats = parseAmountRange(amountStr)
 
                 if (ThreadLocalRandom.current().nextDouble() <= tableChance) {
                     if (DEBUG) println("DropTable '$itemDef' 진입 (반복: $tableRepeats)")
-                    val dropTable = dropTableOpt.get()
-
                     repeat(tableRepeats) {
-                        processDropTableContent(dropTable, mfMultiplier, event, killer, magicFind, isBlacklisted)
+                        processDropTableContent(dropTableOpt.get(), mfMultiplier, event, killer, magicFind, isBlacklisted)
                     }
                 }
                 return
             }
         }
 
-        val baseChance = chanceStr.toDoubleOrNull() ?: 1.0
-        val baseAmountRaw = parseRawAmount(amountStr)
-
-        handleItemDrop(itemDef, baseAmountRaw, baseChance, mfMultiplier, event, killer, magicFind)
+        handleItemDrop(itemDef, parseRawAmount(amountStr), chanceStr.toDoubleOrNull() ?: 1.0, mfMultiplier, event, killer, magicFind)
     }
 
     private fun processDropTableContent(dropTable: Any, mfMultiplier: Double, event: MythicMobDeathEvent, killer: Player, magicFind: Double, isFromBlacklistedTable: Boolean = false) {
@@ -200,7 +167,6 @@ object MagicFindCalculator {
                 } else "unknown"
 
                 val baseChance = getChanceFromDrop(drop)
-
                 if (DEBUG && baseChance < 1.0) {
                     println("DEBUG: 내부 아이템 '$itemInternalName' 확률 인식됨: ${String.format("%.1f", baseChance*100)}%")
                 }
@@ -209,17 +175,7 @@ object MagicFindCalculator {
                 val baseAmountRaw = if (amountObj != null) parseAmountObject(amountObj) else 1
 
                 if (itemInternalName != "unknown") {
-                    handleItemDrop(
-                        itemDef = itemInternalName,
-                        baseAmountRaw = baseAmountRaw,
-                        baseChance = baseChance,
-                        mfMultiplier = mfMultiplier,
-                        event = event,
-                        killer = killer,
-                        magicFind = magicFind,
-                        mythicItemObject = itemField,
-                        skipRareDropCheck = isFromBlacklistedTable
-                    )
+                    handleItemDrop(itemInternalName, baseAmountRaw, baseChance, mfMultiplier, event, killer, magicFind, itemField, isFromBlacklistedTable)
                 }
             }
         } catch (e: Exception) {
@@ -228,37 +184,18 @@ object MagicFindCalculator {
     }
 
     private fun getChanceFromDrop(drop: Any): Double {
-        val weightVal = getFieldDouble(drop, "weight")
-        if (weightVal != null && weightVal < 1.0) {
-            return weightVal
-        }
-
+        getFieldDouble(drop, "weight")?.let { if (it < 1.0) return it }
         try {
-            val method = drop.javaClass.getMethod("getWeight")
-            val result = (method.invoke(drop) as? Number)?.toDouble()
-            if (result != null && result < 1.0) {
-                return result
-            }
+            (drop.javaClass.getMethod("getWeight").invoke(drop) as? Number)?.toDouble()?.let { if (it < 1.0) return it }
         } catch (e: Exception) {}
-
-        val chanceVal = getFieldDouble(drop, "chance")
-        if (chanceVal != null && chanceVal < 1.0) {
-            return chanceVal
-        }
-
+        getFieldDouble(drop, "chance")?.let { if (it < 1.0) return it }
         return 1.0
     }
 
     private fun handleItemDrop(
-        itemDef: String,
-        baseAmountRaw: Any,
-        baseChance: Double,
-        mfMultiplier: Double,
-        event: MythicMobDeathEvent,
-        killer: Player,
-        magicFind: Double,
-        mythicItemObject: Any? = null,
-        skipRareDropCheck: Boolean = false
+        itemDef: String, baseAmountRaw: Any, baseChance: Double, mfMultiplier: Double,
+        event: MythicMobDeathEvent, killer: Player, magicFind: Double,
+        mythicItemObject: Any? = null, skipRareDropCheck: Boolean = false
     ) {
         val finalChance: Double
         val amountMultiplier: Int
@@ -268,7 +205,6 @@ object MagicFindCalculator {
             amountMultiplier = floor(mfMultiplier).toInt().coerceAtLeast(1)
         } else {
             val totalChance = baseChance * mfMultiplier
-
             if (totalChance <= 1.0) {
                 finalChance = totalChance
                 amountMultiplier = 1
@@ -278,60 +214,136 @@ object MagicFindCalculator {
             }
         }
 
-        if (ThreadLocalRandom.current().nextDouble() <= finalChance) {
+        val rolled = ThreadLocalRandom.current().nextDouble()
+        if (DEBUG) println("DEBUG: '$itemDef' 확률 체크: rolled=${"%.4f".format(rolled)} vs finalChance=${"%.4f".format(finalChance)}")
+
+        if (rolled <= finalChance) {
             val rolledBaseAmount = when (baseAmountRaw) {
                 is Int -> baseAmountRaw
                 is IntRange -> baseAmountRaw.random()
                 else -> 1
             }
-
             val finalAmount = rolledBaseAmount * amountMultiplier
 
+            if (DEBUG) println("DEBUG: '$itemDef' 드롭 성공! finalAmount=$finalAmount")
+
             if (finalAmount > 0) {
-                // 블랙리스트 체크 및 희귀 드롭 알림
                 if (!skipRareDropCheck) {
                     checkAndAnnounceRareDrop(itemDef, baseChance, finalAmount, killer, magicFind, mythicItemObject)
                 }
 
-                val maxStackSize = 64
-                val fullStacks = finalAmount / maxStackSize
-                val remainder = finalAmount % maxStackSize
+                val itemStack = generateItem(itemDef, 1, mythicItemObject)
+                if (itemStack != null) {
+                    if (DEBUG) println("DEBUG: 아이템 생성 성공: ${itemStack.type}")
 
-                repeat(fullStacks) {
-                    val itemStack = generateItem(itemDef, maxStackSize, mythicItemObject)
-                    if (itemStack != null) event.drops.add(itemStack)
-                }
+                    val sackSlot = findSackSlot(killer, itemStack)
+                    if (sackSlot != null) {
+                        addToSack(killer, sackSlot, finalAmount)
+                        if (DEBUG) println("[SackIntegration] ${killer.name}의 가방 슬롯 ${sackSlot}에 ${itemStack.type} x${finalAmount} 추가됨")
+                    } else {
+                        if (DEBUG) println("DEBUG: 가방 미등록 아이템 -> 월드 드롭")
+                        val maxStackSize = 64
+                        val fullStacks = finalAmount / maxStackSize
+                        val remainder = finalAmount % maxStackSize
 
-                if (remainder > 0) {
-                    val itemStack = generateItem(itemDef, remainder, mythicItemObject)
-                    if (itemStack != null) event.drops.add(itemStack)
+                        repeat(fullStacks) {
+                            generateItem(itemDef, maxStackSize, mythicItemObject)?.let { event.drops.add(it) }
+                        }
+                        if (remainder > 0) {
+                            generateItem(itemDef, remainder, mythicItemObject)?.let { event.drops.add(it) }
+                        }
+                    }
+                } else {
+                    if (DEBUG) println("DEBUG: 아이템 생성 실패: $itemDef")
                 }
             }
         }
     }
 
-    private fun checkAndAnnounceRareDrop(
-        itemDef: String,
-        originalChance: Double,
-        amount: Int,
-        killer: Player,
-        magicFind: Double,
-        mythicItemObject: Any?
-    ) {
-        // 아이템이 블랙리스트에 있는지 확인
-        val itemDefUpper = itemDef.split("{")[0].uppercase()
-        if (blacklistedItems.contains(itemDefUpper) || blacklistedItems.contains(itemDef)) {
-            return
-        }
+    private fun findSackSlot(player: Player, itemStack: ItemStack): Int? {
+        try {
+            if (DEBUG) println("[SackIntegration] 가방 슬롯 검색 시작: ${player.name}, 아이템: ${itemStack.type}")
+            val uuid = player.uniqueId.toString()
 
-        // 활성화된 티어 중 원본 확률이 범위에 해당하는 가장 흔한(높은 확률) 티어 찾기
+            for (slot in 1..27) {
+                val varName = "sel_item.${uuid}::${slot}"
+                if (DEBUG && slot <= 3) println("[SackIntegration] 슬롯 ${slot} 변수명: ${varName}")
+
+                val rawValue = Variables.getVariable(varName, null, false)
+                if (DEBUG && slot <= 3) {
+                    if (rawValue != null) {
+                        println("[SackIntegration] 슬롯 ${slot} 원본 값: ${rawValue}")
+                        println("[SackIntegration] 슬롯 ${slot} 값 타입: ${rawValue.javaClass.name}")
+                    } else {
+                        println("[SackIntegration] 슬롯 ${slot} 값: null")
+                    }
+                }
+
+                val registeredItem = when (rawValue) {
+                    is ItemType -> rawValue.random
+                    is ItemStack -> rawValue
+                    else -> null
+                }
+
+                if (DEBUG && registeredItem != null && slot <= 3) {
+                    println("[SackIntegration] 슬롯 ${slot}에 등록된 아이템: ${registeredItem.type}")
+                }
+
+                if (registeredItem != null && isSameItem(registeredItem, itemStack)) {
+                    if (DEBUG) println("[SackIntegration] 매칭 성공! 슬롯 ${slot}")
+                    return slot
+                }
+            }
+
+            if (DEBUG) println("[SackIntegration] 매칭되는 슬롯 없음")
+        } catch (e: Exception) {
+            println("[SackIntegration] 가방 슬롯 검색 오류: ${e.message}")
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    private fun isSameItem(item1: ItemStack, item2: ItemStack): Boolean {
+        if (item1.type != item2.type) return false
+        val meta1 = item1.itemMeta
+        val meta2 = item2.itemMeta
+
+        if (meta1 == null && meta2 == null) return true
+        if (meta1 == null || meta2 == null) return false
+
+        if (meta1.hasCustomModelData() != meta2.hasCustomModelData()) return false
+        if (meta1.hasCustomModelData() && meta1.customModelData != meta2.customModelData) return false
+        if (meta1.hasDisplayName() != meta2.hasDisplayName()) return false
+        if (meta1.hasDisplayName() && meta1.displayName != meta2.displayName) return false
+
+        return true
+    }
+
+    private fun addToSack(player: Player, slot: Int, amount: Int) {
+        try {
+            val uuid = player.uniqueId.toString()
+            val varName = "amount.sel_item.${uuid}::${slot}"
+            val amountObj = Variables.getVariable(varName, null, false)
+            val currentAmount = if (amountObj is Number) amountObj.toLong() else 0L
+            val newAmount = currentAmount + amount
+
+            Variables.setVariable(varName, newAmount, null, false)
+            if (DEBUG) println("[SackIntegration] ${player.name}의 슬롯 ${slot}: ${currentAmount} -> ${newAmount}")
+        } catch (e: Exception) {
+            println("[SackIntegration] 가방 저장 오류: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    private fun checkAndAnnounceRareDrop(itemDef: String, originalChance: Double, amount: Int, killer: Player, magicFind: Double, mythicItemObject: Any?) {
+        val itemDefUpper = itemDef.split("{")[0].uppercase()
+        if (blacklistedItems.contains(itemDefUpper) || blacklistedItems.contains(itemDef)) return
+
         val tier = rarityTiers.firstOrNull {
             it.enabled && originalChance < it.maxChance && originalChance >= it.minChance
         } ?: return
 
         val itemName = getItemDisplayName(itemDef, mythicItemObject)
-
-        // MF 적용 후 확률 계산 (표시용)
         val mfAppliedChance = originalChance * (1.0 + (magicFind / 100.0))
         val displayChance = (mfAppliedChance.coerceAtMost(1.0) * 100).let {
             when {
@@ -341,7 +353,6 @@ object MagicFindCalculator {
             }
         }
 
-        // 플레이스홀더 치환
         val message = ChatColor.translateAlternateColorCodes('&', tier.message)
             .replace("{item}", itemName)
             .replace("{amount}", amount.toString())
@@ -349,7 +360,6 @@ object MagicFindCalculator {
             .replace("{player}", killer.name)
             .replace("{magicfind}", String.format("%.0f%%", magicFind))
 
-        // 메시지 전송 및 사운드 재생
         if (tier.broadcast) {
             Bukkit.getOnlinePlayers().forEach { player ->
                 player.sendMessage(message)
@@ -389,7 +399,6 @@ object MagicFindCalculator {
         } catch (e: Exception) {
             if (DEBUG) e.printStackTrace()
         }
-
         return itemDef
     }
 
@@ -410,61 +419,43 @@ object MagicFindCalculator {
         }
     }
 
-    // --- 유틸리티 ---
+    private fun parseAmountRange(str: String): Int = try {
+        if (str.contains("-")) {
+            val s = str.split("-")
+            ThreadLocalRandom.current().nextInt(s[0].toIntOrNull() ?: 1, (s[1].toIntOrNull() ?: 1) + 1)
+        } else str.toIntOrNull() ?: 1
+    } catch (e: Exception) { 1 }
 
-    private fun parseAmountRange(str: String): Int {
-        return try {
-            if (str.contains("-")) {
-                val s = str.split("-")
-                val min = s[0].toIntOrNull() ?: 1
-                val max = s[1].toIntOrNull() ?: 1
-                ThreadLocalRandom.current().nextInt(min, max + 1)
-            } else {
-                str.toIntOrNull() ?: 1
-            }
-        } catch (e: Exception) { 1 }
-    }
+    private fun parseRawAmount(str: String): Any = try {
+        if (str.contains("-") || str.contains("to")) {
+            val s = str.split(Regex("(-|to)"))
+            val min = s[0].trim().toIntOrNull() ?: 1
+            val max = s[1].trim().toIntOrNull() ?: 1
+            min..max
+        } else str.toIntOrNull() ?: 1
+    } catch (e: Exception) { 1 }
 
-    private fun parseRawAmount(str: String): Any {
-        return try {
-            if (str.contains("-") || str.contains("to")) {
-                val s = str.split(Regex("(-|to)"))
-                val min = s[0].trim().toIntOrNull() ?: 1
-                val max = s[1].trim().toIntOrNull() ?: 1
-                min..max
-            } else {
-                str.toIntOrNull() ?: 1
-            }
-        } catch (e: Exception) { 1 }
-    }
-
-    private fun parseAmountObject(obj: Any): Any {
-        return try {
-            val minField = getFieldValue(obj, "min")
-            val maxField = getFieldValue(obj, "max")
-            if (minField is Number && maxField is Number) {
-                minField.toInt()..maxField.toInt()
-            } else {
-                (obj as? Number)?.toInt() ?: 1
-            }
-        } catch (e: Exception) { 1 }
-    }
+    private fun parseAmountObject(obj: Any): Any = try {
+        val minField = getFieldValue(obj, "min")
+        val maxField = getFieldValue(obj, "max")
+        if (minField is Number && maxField is Number) {
+            minField.toInt()..maxField.toInt()
+        } else (obj as? Number)?.toInt() ?: 1
+    } catch (e: Exception) { 1 }
 
     private fun generateItem(itemDef: String, amount: Int, mythicItemObject: Any?): ItemStack? {
-        try {
+        return try {
             if (mythicItemObject != null) {
                 val genMethod = mythicItemObject.javaClass.getMethod("generateItemStack", Int::class.javaPrimitiveType)
-                return convertToBukkitStack(genMethod.invoke(mythicItemObject, amount), amount)
-            }
-            if (itemDef.contains("{") || MythicBukkit.inst().itemManager.getItem(itemDef).isPresent) {
+                convertToBukkitStack(genMethod.invoke(mythicItemObject, amount), amount)
+            } else if (itemDef.contains("{") || MythicBukkit.inst().itemManager.getItem(itemDef).isPresent) {
                 val itemOpt = MythicBukkit.inst().itemManager.getItem(itemDef)
-                if (itemOpt.isPresent) {
-                    return convertToBukkitStack(itemOpt.get().generateItemStack(amount), amount)
-                }
+                if (itemOpt.isPresent) convertToBukkitStack(itemOpt.get().generateItemStack(amount), amount) else null
+            } else {
+                val mat = Material.getMaterial(itemDef.split("{")[0].uppercase()) ?: return null
+                ItemStack(mat, amount)
             }
-            val mat = Material.getMaterial(itemDef.split("{")[0].uppercase()) ?: return null
-            return ItemStack(mat, amount)
-        } catch (e: Exception) { return null }
+        } catch (e: Exception) { null }
     }
 
     private fun convertToBukkitStack(abstractItem: Any?, amount: Int): ItemStack? {
@@ -494,7 +485,6 @@ object MagicFindCalculator {
         return null
     }
 
-    private fun getFieldDouble(instance: Any, fieldName: String): Double? {
-        return (getFieldValue(instance, fieldName) as? Number)?.toDouble()
-    }
+    private fun getFieldDouble(instance: Any, fieldName: String): Double? =
+        (getFieldValue(instance, fieldName) as? Number)?.toDouble()
 }
