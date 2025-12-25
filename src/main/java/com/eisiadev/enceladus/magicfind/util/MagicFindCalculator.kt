@@ -12,6 +12,7 @@ import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Player
 import org.bukkit.inventory.ItemStack
+import org.bukkit.metadata.FixedMetadataValue
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
 import java.util.concurrent.ThreadLocalRandom
@@ -22,6 +23,7 @@ object MagicFindCalculator {
     private const val DEBUG = false
     private lateinit var config: FileConfiguration
     private var configFile: File? = null
+    private lateinit var pluginInstance: JavaPlugin
 
     data class RarityTier(
         val id: String, val enabled: Boolean, val minChance: Double, val maxChance: Double,
@@ -32,10 +34,24 @@ object MagicFindCalculator {
     private var blacklistedItems = mutableSetOf<String>()
     private var blacklistedDropTables = mutableSetOf<String>()
 
+    // 캐싱된 Magic Find 값을 저장하는 맵
+    private val magicFindCache = mutableMapOf<String, CachedMagicFind>()
+
+    data class CachedMagicFind(
+        val value: Double,
+        val timestamp: Long
+    )
+
     fun initialize(plugin: JavaPlugin) {
+        pluginInstance = plugin
         configFile = File(plugin.dataFolder, "config.yml")
         if (!configFile!!.exists()) plugin.saveResource("config.yml", false)
         loadConfig()
+
+        // 캐시 정리 스케줄러 (5분마다 오래된 캐시 삭제)
+        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, Runnable {
+            cleanupCache()
+        }, 6000L, 6000L) // 5분 = 6000 ticks
     }
 
     fun loadConfig() {
@@ -98,7 +114,70 @@ object MagicFindCalculator {
         )
     }
 
+    /**
+     * Skript 변수에서 Magic Find 값을 가져옵니다 (캐싱 사용)
+     */
+    private fun getMagicFindFromSkript(player: Player): Double {
+        val uuid = player.uniqueId.toString()
+        val now = System.currentTimeMillis()
+
+        // 캐시 확인 (30초 이내 데이터)
+        magicFindCache[uuid]?.let { cached ->
+            if (now - cached.timestamp < 30000) {
+                if (DEBUG) println("[MagicFind] 캐시에서 MF 조회: ${player.name} = ${cached.value}")
+                return cached.value
+            }
+        }
+
+        // 캐시 미스 - Skript 변수에서 조회
+        val varName = "magicfind.${uuid}"
+        val rawValue = Variables.getVariable(varName, null, false)
+        val magicFind = when (rawValue) {
+            is Number -> rawValue.toDouble()
+            else -> 0.0
+        }
+
+        // 캐시 저장
+        magicFindCache[uuid] = CachedMagicFind(magicFind, now)
+        if (DEBUG) println("[MagicFind] Skript에서 MF 조회 및 캐싱: ${player.name} = $magicFind")
+
+        return magicFind
+    }
+
+    /**
+     * 오래된 캐시 항목 정리 (5분 이상 된 데이터)
+     */
+    private fun cleanupCache() {
+        val now = System.currentTimeMillis()
+        val iterator = magicFindCache.iterator()
+        var removed = 0
+
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (now - entry.value.timestamp > 300000) { // 5분
+                iterator.remove()
+                removed++
+            }
+        }
+
+        if (DEBUG && removed > 0) {
+            println("[MagicFind] 캐시 정리: ${removed}개 항목 삭제")
+        }
+    }
+
     fun modifyDrops(event: MythicMobDeathEvent, killer: Player, magicFind: Double) {
+        // 중복 이벤트 방지
+        if (event.entity.hasMetadata("magicfind_processed")) {
+            if (DEBUG) println("[MagicFind] ⚠️ 이미 처리된 몹, 무시")
+            return
+        }
+
+        event.entity.setMetadata("magicfind_processed", FixedMetadataValue(pluginInstance, true))
+
+        // Magic Find 값 캐싱 (이 이벤트 처리 중에는 이 값 사용)
+        val uuid = killer.uniqueId.toString()
+        magicFindCache[uuid] = CachedMagicFind(magicFind, System.currentTimeMillis())
+
         if (DEBUG) println("--- MagicFindCalculator Start [Killer: ${killer.name}, MF: $magicFind] ---")
 
         val mfMultiplier = 1.0 + (magicFind / 100.0)
@@ -111,21 +190,73 @@ object MagicFindCalculator {
             val rawDropLines = getStringListMethod.invoke(config, "Drops") as? List<String> ?: emptyList()
             if (rawDropLines.isEmpty()) return
 
+            val originalDrops = ArrayList(event.drops)
             event.drops.clear()
-            rawDropLines.forEach { line -> processConfigLine(line, mfMultiplier, event, killer, magicFind) }
+
+            var itemsAddedToSack = 0
+            var itemsAddedToWorld = 0
+
+            rawDropLines.forEach { line ->
+                val result = processConfigLine(line, mfMultiplier, event, killer, magicFind)
+                itemsAddedToSack += result.first
+                itemsAddedToWorld += result.second
+            }
+
+            if (DEBUG) {
+                println("[MagicFind] 처리 완료 - 가방: ${itemsAddedToSack}개, 월드: ${itemsAddedToWorld}개")
+            }
+
+            // ✅ 수정: 아무것도 처리 안 된 경우에만 원본 드롭 복구 (단, MF 적용)
+            val newDropsCount = event.drops.size
+            if (newDropsCount == 0 && originalDrops.isNotEmpty() && itemsAddedToSack == 0) {
+                if (DEBUG) println("[MagicFind] 드롭 없음 감지 -> 원본 드롭에 MF 적용하여 복구")
+
+                // 원본 드롭에도 MF 적용
+                originalDrops.forEach { originalItem ->
+                    val amountMultiplier = floor(mfMultiplier).toInt().coerceAtLeast(1)
+                    val finalAmount = originalItem.amount * amountMultiplier
+
+                    if (finalAmount > 0) {
+                        val sackSlot = findSackSlot(killer, originalItem)
+                        if (sackSlot != null) {
+                            addToSack(killer, sackSlot, finalAmount)
+                            itemsAddedToSack += finalAmount
+                            if (DEBUG) println("[MagicFind] 복구 아이템 가방 추가: ${originalItem.type} x$finalAmount")
+                        } else {
+                            val maxStackSize = originalItem.maxStackSize
+                            val fullStacks = finalAmount / maxStackSize
+                            val remainder = finalAmount % maxStackSize
+
+                            repeat(fullStacks) {
+                                val stack = originalItem.clone()
+                                stack.amount = maxStackSize
+                                event.drops.add(stack)
+                            }
+                            if (remainder > 0) {
+                                val stack = originalItem.clone()
+                                stack.amount = remainder
+                                event.drops.add(stack)
+                            }
+                            itemsAddedToWorld += finalAmount
+                            if (DEBUG) println("[MagicFind] 복구 아이템 월드 추가: ${originalItem.type} x$finalAmount")
+                        }
+                    }
+                }
+            }
+
         } catch (e: Exception) {
             e.printStackTrace()
-            println("!!! MagicFind Error: 오류 발생으로 기존 드롭 복구 시도 !!!")
+            println("!!! MagicFind Error: 오류 발생 !!!")
         }
     }
 
-    private fun processConfigLine(line: String, mfMultiplier: Double, event: MythicMobDeathEvent, killer: Player, magicFind: Double) {
+    private fun processConfigLine(line: String, mfMultiplier: Double, event: MythicMobDeathEvent, killer: Player, magicFind: Double): Pair<Int, Int> {
         val trimmed = line.trim()
-        if (trimmed.isEmpty() || trimmed.startsWith("#")) return
+        if (trimmed.isEmpty() || trimmed.startsWith("#")) return Pair(0, 0)
 
         val parts = trimmed.split(Regex("\\s+"), limit = 3)
         val itemDef = parts[0]
-        if (itemDef.equals("exp", ignoreCase = true) || itemDef.equals("experience", ignoreCase = true)) return
+        if (itemDef.equals("exp", ignoreCase = true) || itemDef.equals("experience", ignoreCase = true)) return Pair(0, 0)
 
         val amountStr = parts.getOrNull(1) ?: "1"
         val chanceStr = parts.getOrNull(2) ?: "1.0"
@@ -138,24 +269,32 @@ object MagicFindCalculator {
                 val tableChance = chanceStr.toDoubleOrNull() ?: 1.0
                 val tableRepeats = parseAmountRange(amountStr)
 
+                var sackCount = 0
+                var worldCount = 0
+
                 if (ThreadLocalRandom.current().nextDouble() <= tableChance) {
                     if (DEBUG) println("DropTable '$itemDef' 진입 (반복: $tableRepeats)")
                     repeat(tableRepeats) {
-                        processDropTableContent(dropTableOpt.get(), mfMultiplier, event, killer, magicFind, isBlacklisted)
+                        val result = processDropTableContent(dropTableOpt.get(), mfMultiplier, event, killer, magicFind, isBlacklisted)
+                        sackCount += result.first
+                        worldCount += result.second
                     }
                 }
-                return
+                return Pair(sackCount, worldCount)
             }
         }
 
-        handleItemDrop(itemDef, parseRawAmount(amountStr), chanceStr.toDoubleOrNull() ?: 1.0, mfMultiplier, event, killer, magicFind)
+        return handleItemDrop(itemDef, parseRawAmount(amountStr), chanceStr.toDoubleOrNull() ?: 1.0, mfMultiplier, event, killer, magicFind)
     }
 
-    private fun processDropTableContent(dropTable: Any, mfMultiplier: Double, event: MythicMobDeathEvent, killer: Player, magicFind: Double, isFromBlacklistedTable: Boolean = false) {
+    private fun processDropTableContent(dropTable: Any, mfMultiplier: Double, event: MythicMobDeathEvent, killer: Player, magicFind: Double, isFromBlacklistedTable: Boolean = false): Pair<Int, Int> {
+        var sackCount = 0
+        var worldCount = 0
+
         try {
             val dropsField = getFieldValue(dropTable, "drops")
             val getViewMethod = dropsField?.javaClass?.getMethod("getView")
-            val dropsList = getViewMethod?.invoke(dropsField) as? Collection<*> ?: return
+            val dropsList = getViewMethod?.invoke(dropsField) as? Collection<*> ?: return Pair(0, 0)
 
             dropsList.forEach { drop ->
                 if (drop == null) return@forEach
@@ -175,12 +314,16 @@ object MagicFindCalculator {
                 val baseAmountRaw = if (amountObj != null) parseAmountObject(amountObj) else 1
 
                 if (itemInternalName != "unknown") {
-                    handleItemDrop(itemInternalName, baseAmountRaw, baseChance, mfMultiplier, event, killer, magicFind, itemField, isFromBlacklistedTable)
+                    val result = handleItemDrop(itemInternalName, baseAmountRaw, baseChance, mfMultiplier, event, killer, magicFind, itemField, isFromBlacklistedTable)
+                    sackCount += result.first
+                    worldCount += result.second
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+
+        return Pair(sackCount, worldCount)
     }
 
     private fun getChanceFromDrop(drop: Any): Double {
@@ -196,7 +339,7 @@ object MagicFindCalculator {
         itemDef: String, baseAmountRaw: Any, baseChance: Double, mfMultiplier: Double,
         event: MythicMobDeathEvent, killer: Player, magicFind: Double,
         mythicItemObject: Any? = null, skipRareDropCheck: Boolean = false
-    ) {
+    ): Pair<Int, Int> {
         val finalChance: Double
         val amountMultiplier: Int
 
@@ -240,9 +383,10 @@ object MagicFindCalculator {
                     if (sackSlot != null) {
                         addToSack(killer, sackSlot, finalAmount)
                         if (DEBUG) println("[SackIntegration] ${killer.name}의 가방 슬롯 ${sackSlot}에 ${itemStack.type} x${finalAmount} 추가됨")
+                        return Pair(finalAmount, 0)
                     } else {
                         if (DEBUG) println("DEBUG: 가방 미등록 아이템 -> 월드 드롭")
-                        val maxStackSize = 64
+                        val maxStackSize = itemStack.maxStackSize
                         val fullStacks = finalAmount / maxStackSize
                         val remainder = finalAmount % maxStackSize
 
@@ -252,12 +396,15 @@ object MagicFindCalculator {
                         if (remainder > 0) {
                             generateItem(itemDef, remainder, mythicItemObject)?.let { event.drops.add(it) }
                         }
+                        return Pair(0, finalAmount)
                     }
                 } else {
                     if (DEBUG) println("DEBUG: 아이템 생성 실패: $itemDef")
                 }
             }
         }
+
+        return Pair(0, 0)
     }
 
     private fun findSackSlot(player: Player, itemStack: ItemStack): Int? {
@@ -488,3 +635,11 @@ object MagicFindCalculator {
     private fun getFieldDouble(instance: Any, fieldName: String): Double? =
         (getFieldValue(instance, fieldName) as? Number)?.toDouble()
 }
+
+// NOTE: MythicMobs does not expose drop chance API.
+// Reflection is intentional and required for MagicFind logic.
+
+// Tested with:
+// - MythicMobs 5.6.2
+// - Skript 2.9.5
+// - Purpur 1.20.2 latest build

@@ -96,7 +96,7 @@ rare_drops:
     message: "&5&lRNGesus Unleashed DROP! &r{item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f&l{player}"
     sound: "slayerdrop.rngesus_incarnate_drop"
     volume: 1.0
-    pitch: 1.5
+    pitch: 1.0
     broadcast: true
 
 # 사운드 대체 설정 (커스텀 사운드가 없을 때 사용할 바닐라 사운드)
