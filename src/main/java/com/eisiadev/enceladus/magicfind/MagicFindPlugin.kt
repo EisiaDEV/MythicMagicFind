@@ -3,6 +3,7 @@ package com.eisiadev.enceladus.magicfind
 import com.eisiadev.enceladus.magicfind.listener.MythicMobDeathListener
 import com.eisiadev.enceladus.magicfind.util.MagicFindCalculator
 import org.bukkit.plugin.java.JavaPlugin
+import com.eisiadev.enceladus.mythicalpowderpouch.MythicalPowderPouch
 
 class MagicFindPlugin : JavaPlugin() {
 
@@ -33,6 +34,8 @@ class MagicFindPlugin : JavaPlugin() {
 
         // Register commands
         getCommand("magicfind")?.setExecutor(MagicFindCommand())
+
+        MythicalPowderPouch.initialize(this)
         logger.info("MagicFindDrops has been enabled!")
     }
 

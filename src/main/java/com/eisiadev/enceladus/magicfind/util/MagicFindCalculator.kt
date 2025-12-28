@@ -17,6 +17,7 @@ import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
 import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.floor
+import com.eisiadev.enceladus.mythicalpowderpouch.MythicalPowderPouch
 
 object MagicFindCalculator {
 
@@ -34,7 +35,6 @@ object MagicFindCalculator {
     private var blacklistedItems = mutableSetOf<String>()
     private var blacklistedDropTables = mutableSetOf<String>()
 
-    // 캐싱된 Magic Find 값을 저장하는 맵
     private val magicFindCache = mutableMapOf<String, CachedMagicFind>()
 
     data class CachedMagicFind(
@@ -48,10 +48,9 @@ object MagicFindCalculator {
         if (!configFile!!.exists()) plugin.saveResource("config.yml", false)
         loadConfig()
 
-        // 캐시 정리 스케줄러 (5분마다 오래된 캐시 삭제)
         Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, Runnable {
             cleanupCache()
-        }, 6000L, 6000L) // 5분 = 6000 ticks
+        }, 6000L, 6000L)
     }
 
     fun loadConfig() {
@@ -121,7 +120,6 @@ object MagicFindCalculator {
         val uuid = player.uniqueId.toString()
         val now = System.currentTimeMillis()
 
-        // 캐시 확인 (30초 이내 데이터)
         magicFindCache[uuid]?.let { cached ->
             if (now - cached.timestamp < 30000) {
                 if (DEBUG) println("[MagicFind] 캐시에서 MF 조회: ${player.name} = ${cached.value}")
@@ -129,7 +127,6 @@ object MagicFindCalculator {
             }
         }
 
-        // 캐시 미스 - Skript 변수에서 조회
         val varName = "magicfind.${uuid}"
         val rawValue = Variables.getVariable(varName, null, false)
         val magicFind = when (rawValue) {
@@ -137,7 +134,6 @@ object MagicFindCalculator {
             else -> 0.0
         }
 
-        // 캐시 저장
         magicFindCache[uuid] = CachedMagicFind(magicFind, now)
         if (DEBUG) println("[MagicFind] Skript에서 MF 조회 및 캐싱: ${player.name} = $magicFind")
 
@@ -154,7 +150,7 @@ object MagicFindCalculator {
 
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (now - entry.value.timestamp > 300000) { // 5분
+            if (now - entry.value.timestamp > 300000) {
                 iterator.remove()
                 removed++
             }
@@ -166,7 +162,6 @@ object MagicFindCalculator {
     }
 
     fun modifyDrops(event: MythicMobDeathEvent, killer: Player, magicFind: Double) {
-        // 중복 이벤트 방지
         if (event.entity.hasMetadata("magicfind_processed")) {
             if (DEBUG) println("[MagicFind] ⚠️ 이미 처리된 몹, 무시")
             return
@@ -174,7 +169,6 @@ object MagicFindCalculator {
 
         event.entity.setMetadata("magicfind_processed", FixedMetadataValue(pluginInstance, true))
 
-        // Magic Find 값 캐싱 (이 이벤트 처리 중에는 이 값 사용)
         val uuid = killer.uniqueId.toString()
         magicFindCache[uuid] = CachedMagicFind(magicFind, System.currentTimeMillis())
 
@@ -206,12 +200,10 @@ object MagicFindCalculator {
                 println("[MagicFind] 처리 완료 - 가방: ${itemsAddedToSack}개, 월드: ${itemsAddedToWorld}개")
             }
 
-            // ✅ 수정: 아무것도 처리 안 된 경우에만 원본 드롭 복구 (단, MF 적용)
             val newDropsCount = event.drops.size
             if (newDropsCount == 0 && originalDrops.isNotEmpty() && itemsAddedToSack == 0) {
                 if (DEBUG) println("[MagicFind] 드롭 없음 감지 -> 원본 드롭에 MF 적용하여 복구")
 
-                // 원본 드롭에도 MF 적용
                 originalDrops.forEach { originalItem ->
                     val amountMultiplier = floor(mfMultiplier).toInt().coerceAtLeast(1)
                     val finalAmount = originalItem.amount * amountMultiplier
@@ -373,6 +365,11 @@ object MagicFindCalculator {
             if (finalAmount > 0) {
                 if (!skipRareDropCheck) {
                     checkAndAnnounceRareDrop(itemDef, baseChance, finalAmount, killer, magicFind, mythicItemObject)
+                }
+
+                if (MythicalPowderPouch.addPowderToPouch(killer, itemDef, finalAmount)) {
+                    if (DEBUG) println("[PowderPouch] ${killer.name}의 파우치에 ${itemDef} x${finalAmount} 추가됨")
+                    return Pair(finalAmount, 0)
                 }
 
                 val itemStack = generateItem(itemDef, 1, mythicItemObject)
