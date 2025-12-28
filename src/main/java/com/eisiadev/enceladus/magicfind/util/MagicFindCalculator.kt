@@ -11,10 +11,14 @@ import org.bukkit.Sound
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.entity.Player
+import org.bukkit.event.EventHandler
+import org.bukkit.event.EventPriority
+import org.bukkit.event.Listener
 import org.bukkit.inventory.ItemStack
 import org.bukkit.metadata.FixedMetadataValue
 import org.bukkit.plugin.java.JavaPlugin
 import java.io.File
+import java.lang.reflect.Method
 import java.util.concurrent.ThreadLocalRandom
 import kotlin.math.floor
 import com.eisiadev.enceladus.mythicalpowderpouch.MythicalPowderPouch
@@ -22,9 +26,17 @@ import com.eisiadev.enceladus.mythicalpowderpouch.MythicalPowderPouch
 object MagicFindCalculator {
 
     private const val DEBUG = false
-    private lateinit var config: FileConfiguration
     private var configFile: File? = null
+    private lateinit var config: FileConfiguration
     private lateinit var pluginInstance: JavaPlugin
+
+    private var configGetStringListMethod: Method? = null
+    private var dropsGetViewMethod: Method? = null
+    private var itemGetInternalNameMethod: Method? = null
+    private var dropGetWeightMethod: Method? = null
+    private var mythicItemGenerateMethod: Method? = null
+    private var mythicItemGetDisplayMethod: Method? = null
+    private var bukkitItemBuildMethod: Method? = null
 
     data class RarityTier(
         val id: String, val enabled: Boolean, val minChance: Double, val maxChance: Double,
@@ -35,22 +47,17 @@ object MagicFindCalculator {
     private var blacklistedItems = mutableSetOf<String>()
     private var blacklistedDropTables = mutableSetOf<String>()
 
-    private val magicFindCache = mutableMapOf<String, CachedMagicFind>()
-
-    data class CachedMagicFind(
-        val value: Double,
-        val timestamp: Long
-    )
-
     fun initialize(plugin: JavaPlugin) {
         pluginInstance = plugin
         configFile = File(plugin.dataFolder, "config.yml")
         if (!configFile!!.exists()) plugin.saveResource("config.yml", false)
-        loadConfig()
 
-        Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, Runnable {
-            cleanupCache()
-        }, 6000L, 6000L)
+        loadConfig()
+        initializeReflection()
+
+        Bukkit.getPluginManager().registerEvents(MagicFindListener(), plugin)
+
+        println("[MagicFind] MagicFindCalculator 초기화 완료")
     }
 
     fun loadConfig() {
@@ -113,51 +120,42 @@ object MagicFindCalculator {
         )
     }
 
-    /**
-     * Skript 변수에서 Magic Find 값을 가져옵니다 (캐싱 사용)
-     */
-    private fun getMagicFindFromSkript(player: Player): Double {
-        val uuid = player.uniqueId.toString()
-        val now = System.currentTimeMillis()
+    private fun initializeReflection() {
+        try {
+            if (DEBUG) println("[MagicFind] Reflection 캐시 초기화 시작...")
 
-        magicFindCache[uuid]?.let { cached ->
-            if (now - cached.timestamp < 30000) {
-                if (DEBUG) println("[MagicFind] 캐시에서 MF 조회: ${player.name} = ${cached.value}")
-                return cached.value
+            val mobManager = MythicBukkit.inst().mobManager
+            val testMobs = mobManager.mobTypes
+
+            if (testMobs.isNotEmpty()) {
+                val testMob = testMobs.first()
+                val config = ReflectionCache.getFieldValue(testMob, "config")
+
+                if (config != null) {
+                    configGetStringListMethod = ReflectionCache.getMethod(
+                        config.javaClass,
+                        "getStringList",
+                        String::class.java
+                    )
+
+                    if (DEBUG) println("[MagicFind] ✓ Reflection 캐시 초기화 성공")
+                }
             }
+        } catch (e: Exception) {
+            println("[MagicFind] ⚠ Reflection 초기화 경고: ${e.message}")
+            if (DEBUG) e.printStackTrace()
         }
-
-        val varName = "magicfind.${uuid}"
-        val rawValue = Variables.getVariable(varName, null, false)
-        val magicFind = when (rawValue) {
-            is Number -> rawValue.toDouble()
-            else -> 0.0
-        }
-
-        magicFindCache[uuid] = CachedMagicFind(magicFind, now)
-        if (DEBUG) println("[MagicFind] Skript에서 MF 조회 및 캐싱: ${player.name} = $magicFind")
-
-        return magicFind
     }
 
-    /**
-     * 오래된 캐시 항목 정리 (5분 이상 된 데이터)
-     */
-    private fun cleanupCache() {
-        val now = System.currentTimeMillis()
-        val iterator = magicFindCache.iterator()
-        var removed = 0
+    private class MagicFindListener : Listener {
 
-        while (iterator.hasNext()) {
-            val entry = iterator.next()
-            if (now - entry.value.timestamp > 300000) {
-                iterator.remove()
-                removed++
-            }
-        }
+        @EventHandler(priority = EventPriority.HIGH)
+        fun onMythicMobDeath(event: MythicMobDeathEvent) {
+            val killer = event.killer as? Player ?: return
+            val magicFind = SkriptVariableReader.getMagicFind(killer)
+            if (DEBUG) println("[MagicFind] ${killer.name}의 Magic Find: ${magicFind}%")
 
-        if (DEBUG && removed > 0) {
-            println("[MagicFind] 캐시 정리: ${removed}개 항목 삭제")
+            modifyDrops(event, killer, magicFind)
         }
     }
 
@@ -169,19 +167,30 @@ object MagicFindCalculator {
 
         event.entity.setMetadata("magicfind_processed", FixedMetadataValue(pluginInstance, true))
 
-        val uuid = killer.uniqueId.toString()
-        magicFindCache[uuid] = CachedMagicFind(magicFind, System.currentTimeMillis())
-
         if (DEBUG) println("--- MagicFindCalculator Start [Killer: ${killer.name}, MF: $magicFind] ---")
 
         val mfMultiplier = 1.0 + (magicFind / 100.0)
 
         try {
             val mobType = event.mobType
-            val config = getFieldValue(mobType, "config") ?: return
-            val getStringListMethod = config::class.java.getMethod("getStringList", String::class.java)
+
+            val config = ReflectionCache.getFieldValue(mobType, "config") ?: run {
+                if (DEBUG) println("[MagicFind] config 필드를 찾을 수 없음")
+                return
+            }
+
+            if (configGetStringListMethod == null) {
+                configGetStringListMethod = ReflectionCache.getMethod(
+                    config.javaClass,
+                    "getStringList",
+                    String::class.java
+                )
+            }
+
             @Suppress("UNCHECKED_CAST")
-            val rawDropLines = getStringListMethod.invoke(config, "Drops") as? List<String> ?: emptyList()
+            val rawDropLines = configGetStringListMethod?.invoke(config, "Drops") as? List<String>
+                ?: emptyList()
+
             if (rawDropLines.isEmpty()) return
 
             val originalDrops = ArrayList(event.drops)
@@ -211,8 +220,8 @@ object MagicFindCalculator {
                     if (finalAmount > 0) {
                         val mythicType = MythicBukkit.inst().itemManager.getMythicTypeFromItem(originalItem)
                         if (mythicType != null && MythicalPowderPouch.addPowderToPouch(killer, mythicType, finalAmount)) {
-                            itemsAddedToSack += finalAmount  // 파우치도 카운트
-                            if (DEBUG) println("[MagicFind] 복구 아이템 파우치 추가: ${mythicType} x$finalAmount")
+                            itemsAddedToSack += finalAmount
+                            if (DEBUG) println("[MagicFind] 복구 아이템 파우치 추가: $mythicType x$finalAmount")
                         } else {
                             val sackSlot = findSackSlot(killer, originalItem)
                             if (sackSlot != null) {
@@ -285,36 +294,65 @@ object MagicFindCalculator {
         return handleItemDrop(itemDef, parseRawAmount(amountStr), chanceStr.toDoubleOrNull() ?: 1.0, mfMultiplier, event, killer, magicFind)
     }
 
-    private fun processDropTableContent(dropTable: Any, mfMultiplier: Double, event: MythicMobDeathEvent, killer: Player, magicFind: Double, isFromBlacklistedTable: Boolean = false): Pair<Int, Int> {
+    private fun processDropTableContent(
+        dropTable: Any,
+        mfMultiplier: Double,
+        event: MythicMobDeathEvent,
+        killer: Player,
+        magicFind: Double,
+        isFromBlacklistedTable: Boolean = false
+    ): Pair<Int, Int> {
         var sackCount = 0
         var worldCount = 0
 
         try {
             val dropsField = getFieldValue(dropTable, "drops")
-            val getViewMethod = dropsField?.javaClass?.getMethod("getView")
-            val dropsList = getViewMethod?.invoke(dropsField) as? Collection<*> ?: return Pair(0, 0)
 
-            dropsList.forEach { drop ->
-                if (drop == null) return@forEach
-
-                val itemField = getFieldValue(drop, "item")
-                val itemInternalName = if (itemField != null) {
-                    val getName = itemField.javaClass.getMethod("getInternalName")
-                    getName.invoke(itemField) as? String ?: "unknown"
-                } else "unknown"
-
-                val baseChance = getChanceFromDrop(drop)
-                if (DEBUG && baseChance < 1.0) {
-                    println("DEBUG: 내부 아이템 '$itemInternalName' 확률 인식됨: ${String.format("%.1f", baseChance*100)}%")
+            if (dropsField != null) {
+                if (dropsGetViewMethod == null) {
+                    dropsGetViewMethod = ReflectionCache.getMethod(
+                        dropsField.javaClass,
+                        "getView"
+                    )
                 }
 
-                val amountObj = getFieldValue(drop, "amount")
-                val baseAmountRaw = if (amountObj != null) parseAmountObject(amountObj) else 1
+                val dropsList = dropsGetViewMethod?.invoke(dropsField) as? Collection<*>
+                    ?: return Pair(0, 0)
 
-                if (itemInternalName != "unknown") {
-                    val result = handleItemDrop(itemInternalName, baseAmountRaw, baseChance, mfMultiplier, event, killer, magicFind, itemField, isFromBlacklistedTable)
-                    sackCount += result.first
-                    worldCount += result.second
+                dropsList.forEach { drop ->
+                    if (drop == null) return@forEach
+
+                    val itemField = getFieldValue(drop, "item")
+                    val itemInternalName = if (itemField != null) {
+                        if (itemGetInternalNameMethod == null) {
+                            itemGetInternalNameMethod = ReflectionCache.getMethod(
+                                itemField.javaClass,
+                                "getInternalName"
+                            )
+                        }
+                        itemGetInternalNameMethod?.invoke(itemField) as? String ?: "unknown"
+                    } else "unknown"
+
+                    val baseChance = getChanceFromDrop(drop)
+
+                    val amountObj = getFieldValue(drop, "amount")
+                    val baseAmountRaw = if (amountObj != null) parseAmountObject(amountObj) else 1
+
+                    if (itemInternalName != "unknown") {
+                        val result = handleItemDrop(
+                            itemInternalName,
+                            baseAmountRaw,
+                            baseChance,
+                            mfMultiplier,
+                            event,
+                            killer,
+                            magicFind,
+                            itemField,
+                            isFromBlacklistedTable
+                        )
+                        sackCount += result.first
+                        worldCount += result.second
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -326,9 +364,22 @@ object MagicFindCalculator {
 
     private fun getChanceFromDrop(drop: Any): Double {
         getFieldDouble(drop, "weight")?.let { if (it < 1.0) return it }
+
         try {
-            (drop.javaClass.getMethod("getWeight").invoke(drop) as? Number)?.toDouble()?.let { if (it < 1.0) return it }
-        } catch (e: Exception) {}
+            if (dropGetWeightMethod == null) {
+                dropGetWeightMethod = ReflectionCache.getMethod(
+                    drop.javaClass,
+                    "getWeight"
+                )
+            }
+
+            (dropGetWeightMethod?.invoke(drop) as? Number)?.toDouble()?.let {
+                if (it < 1.0) return it
+            }
+        } catch (e: Exception) {
+            if (DEBUG) e.printStackTrace()
+        }
+
         getFieldDouble(drop, "chance")?.let { if (it < 1.0) return it }
         return 1.0
     }
@@ -374,7 +425,7 @@ object MagicFindCalculator {
                 }
 
                 if (MythicalPowderPouch.addPowderToPouch(killer, itemDef, finalAmount)) {
-                    if (DEBUG) println("[PowderPouch] ${killer.name}의 파우치에 ${itemDef} x${finalAmount} 추가됨")
+                    if (DEBUG) println("[PowderPouch] ${killer.name}의 파우치에 $itemDef x${finalAmount} 추가됨")
                     return Pair(finalAmount, 0)
                 }
 
@@ -417,17 +468,8 @@ object MagicFindCalculator {
 
             for (slot in 1..27) {
                 val varName = "sel_item.${uuid}::${slot}"
-                if (DEBUG && slot <= 3) println("[SackIntegration] 슬롯 ${slot} 변수명: ${varName}")
 
                 val rawValue = Variables.getVariable(varName, null, false)
-                if (DEBUG && slot <= 3) {
-                    if (rawValue != null) {
-                        println("[SackIntegration] 슬롯 ${slot} 원본 값: ${rawValue}")
-                        println("[SackIntegration] 슬롯 ${slot} 값 타입: ${rawValue.javaClass.name}")
-                    } else {
-                        println("[SackIntegration] 슬롯 ${slot} 값: null")
-                    }
-                }
 
                 val registeredItem = when (rawValue) {
                     is ItemType -> rawValue.random
@@ -435,12 +477,8 @@ object MagicFindCalculator {
                     else -> null
                 }
 
-                if (DEBUG && registeredItem != null && slot <= 3) {
-                    println("[SackIntegration] 슬롯 ${slot}에 등록된 아이템: ${registeredItem.type}")
-                }
-
                 if (registeredItem != null && isSameItem(registeredItem, itemStack)) {
-                    if (DEBUG) println("[SackIntegration] 매칭 성공! 슬롯 ${slot}")
+                    if (DEBUG) println("[SackIntegration] 매칭 성공! 슬롯 $slot")
                     return slot
                 }
             }
@@ -478,7 +516,7 @@ object MagicFindCalculator {
             val newAmount = currentAmount + amount
 
             Variables.setVariable(varName, newAmount, null, false)
-            if (DEBUG) println("[SackIntegration] ${player.name}의 슬롯 ${slot}: ${currentAmount} -> ${newAmount}")
+            if (DEBUG) println("[SackIntegration] ${player.name}의 슬롯 ${slot}: $currentAmount -> $newAmount")
         } catch (e: Exception) {
             println("[SackIntegration] 가방 저장 오류: ${e.message}")
             e.printStackTrace()
@@ -524,8 +562,14 @@ object MagicFindCalculator {
     private fun getItemDisplayName(itemDef: String, mythicItemObject: Any?): String {
         try {
             if (mythicItemObject != null) {
-                val displayMethod = mythicItemObject.javaClass.getMethod("getDisplayName")
-                val displayName = displayMethod.invoke(mythicItemObject) as? String
+                if (mythicItemGetDisplayMethod == null) {
+                    mythicItemGetDisplayMethod = ReflectionCache.getMethod(
+                        mythicItemObject.javaClass,
+                        "getDisplayName"
+                    )
+                }
+
+                val displayName = mythicItemGetDisplayMethod?.invoke(mythicItemObject) as? String
                 if (!displayName.isNullOrEmpty()) {
                     return ChatColor.translateAlternateColorCodes('&', displayName)
                 }
@@ -596,24 +640,42 @@ object MagicFindCalculator {
     private fun generateItem(itemDef: String, amount: Int, mythicItemObject: Any?): ItemStack? {
         return try {
             if (mythicItemObject != null) {
-                val genMethod = mythicItemObject.javaClass.getMethod("generateItemStack", Int::class.javaPrimitiveType)
-                convertToBukkitStack(genMethod.invoke(mythicItemObject, amount), amount)
+                if (mythicItemGenerateMethod == null) {
+                    mythicItemGenerateMethod = ReflectionCache.getMethod(
+                        mythicItemObject.javaClass,
+                        "generateItemStack",
+                        Int::class.javaPrimitiveType!!
+                    )
+                }
+                convertToBukkitStack(mythicItemGenerateMethod?.invoke(mythicItemObject, amount), amount)
             } else if (itemDef.contains("{") || MythicBukkit.inst().itemManager.getItem(itemDef).isPresent) {
                 val itemOpt = MythicBukkit.inst().itemManager.getItem(itemDef)
-                if (itemOpt.isPresent) convertToBukkitStack(itemOpt.get().generateItemStack(amount), amount) else null
+                if (itemOpt.isPresent) {
+                    convertToBukkitStack(itemOpt.get().generateItemStack(amount), amount)
+                } else null
             } else {
                 val mat = Material.getMaterial(itemDef.split("{")[0].uppercase()) ?: return null
                 ItemStack(mat, amount)
             }
-        } catch (e: Exception) { null }
+        } catch (e: Exception) {
+            if (DEBUG) e.printStackTrace()
+            null
+        }
     }
 
     private fun convertToBukkitStack(abstractItem: Any?, amount: Int): ItemStack? {
         if (abstractItem == null) return null
+
         val stack = when {
             abstractItem is ItemStack -> abstractItem
             abstractItem.javaClass.simpleName == "BukkitItemStack" -> {
-                abstractItem.javaClass.getMethod("build").invoke(abstractItem) as? ItemStack
+                if (bukkitItemBuildMethod == null) {
+                    bukkitItemBuildMethod = ReflectionCache.getMethod(
+                        abstractItem.javaClass,
+                        "build"
+                    )
+                }
+                bukkitItemBuildMethod?.invoke(abstractItem) as? ItemStack
             }
             else -> null
         }
@@ -622,17 +684,7 @@ object MagicFindCalculator {
     }
 
     private fun getFieldValue(instance: Any, fieldName: String): Any? {
-        var cls: Class<*>? = instance.javaClass
-        while (cls != null && cls != Object::class.java) {
-            try {
-                val f = cls.getDeclaredField(fieldName)
-                f.isAccessible = true
-                return f.get(instance)
-            } catch (e: NoSuchFieldException) {
-                cls = cls.superclass
-            }
-        }
-        return null
+        return ReflectionCache.getFieldValue(instance, fieldName)
     }
 
     private fun getFieldDouble(instance: Any, fieldName: String): Double? =
