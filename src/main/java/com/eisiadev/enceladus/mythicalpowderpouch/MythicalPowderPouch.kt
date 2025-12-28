@@ -34,7 +34,8 @@ object MythicalPowderPouch : Listener {
         10.0.pow(tier - 1).toLong()
     }
 
-    private val openPouches = mutableMapOf<Player, Int>()
+    private data class PouchState(val page: Int, val initialPoints: Long)
+    private val openPouches = mutableMapOf<Player, PouchState>()
 
     fun initialize(plugin: JavaPlugin) {
         pluginInstance = plugin
@@ -56,12 +57,6 @@ object MythicalPowderPouch : Listener {
         } catch (e: Exception) {
             println("[PowderPouch] 데이터 저장 실패:")
             e.printStackTrace()
-        }
-    }
-
-    fun hasPouch(player: Player): Boolean {
-        return player.inventory.contents.any { item ->
-            item != null && isPouchItem(item)
         }
     }
 
@@ -149,6 +144,7 @@ object MythicalPowderPouch : Listener {
         val startIndex = page * PAGE_SIZE
         val endIndex = minOf(startIndex + PAGE_SIZE, itemsToDisplay.size)
         val hasNextPage = endIndex < itemsToDisplay.size
+        val hasPrevPage = page > 0
 
         for (i in startIndex until endIndex) {
             if (slot >= PAGE_SIZE) break
@@ -162,17 +158,17 @@ object MythicalPowderPouch : Listener {
             }
         }
 
-        setupNavigation(inv, page, compressed, player, hasNextPage)
+        setupNavigation(inv, page, compressed, player, hasNextPage, hasPrevPage)
 
         player.openInventory(inv)
-        openPouches[player] = page
+        openPouches[player] = PouchState(page, points)
 
         if (DEBUG) {
             println("[PowderPouch] ${player.name}이(가) 파우치 열기 (페이지: $page, 총 포인트: $points, 다음 페이지: $hasNextPage)")
         }
     }
 
-    private fun setupNavigation(inv: Inventory, currentPage: Int, compressed: Map<Int, Long>, player: Player, hasNextPage: Boolean) {
+    private fun setupNavigation(inv: Inventory, currentPage: Int, compressed: Map<Int, Long>, player: Player, hasNextPage: Boolean, hasPrevPage: Boolean) {
         val totalPages = calculateTotalPages(compressed)
 
         val background = ItemStack(Material.BRICK)
@@ -185,7 +181,7 @@ object MythicalPowderPouch : Listener {
             inv.setItem(slot, background.clone())
         }
 
-        if (currentPage > 0) {
+        if (hasPrevPage) {
             val prevButton = ItemStack(Material.ARROW)
             val meta = prevButton.itemMeta
             meta?.setCustomModelData(2)
@@ -262,8 +258,25 @@ object MythicalPowderPouch : Listener {
         openPouch(player, 0)
     }
 
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.MONITOR)
     fun onInventoryClick(event: InventoryClickEvent) {
+        val player = event.whoClicked as? Player ?: return
+
+        if (!openPouches.containsKey(player)) return
+
+        val topInv = event.view.topInventory
+
+        if (!event.isCancelled) {
+            Bukkit.getScheduler().runTask(pluginInstance, Runnable {
+                if (player.openInventory.topInventory == topInv) {
+                    updateNavigation(player, topInv)
+                }
+            })
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH)
+    fun onInventoryClickNavigation(event: InventoryClickEvent) {
         val player = event.whoClicked as? Player ?: return
 
         if (!openPouches.containsKey(player)) return
@@ -271,25 +284,26 @@ object MythicalPowderPouch : Listener {
         val clickedInv = event.clickedInventory ?: return
         val topInv = event.view.topInventory
 
-        if (clickedInv != topInv) return
-
         val slot = event.slot
 
-        if (slot >= PAGE_SIZE) {
+        if (clickedInv == topInv && slot >= PAGE_SIZE) {
             event.isCancelled = true
 
-            val currentPage = openPouches[player] ?: 0
+            val currentPage = openPouches[player]?.page ?: 0
 
             when (slot) {
                 46 -> {
                     if (currentPage > 0) {
                         player.playSound(player.location, "ui.button.click_1", 1.0f, 1.0f)
+                        saveCurrentInventoryState(player, topInv)
                         openPouch(player, currentPage - 1)
                     } else {
                         player.sendMessage("${ChatColor.RED}이전 페이지가 없습니다!")
                     }
                 }
                 52 -> {
+                    saveCurrentInventoryState(player, topInv)
+
                     val points = getPoints(player)
                     val compressed = compressPoints(points)
                     val itemsToDisplay = mutableListOf<Pair<Int, Int>>()
@@ -318,21 +332,23 @@ object MythicalPowderPouch : Listener {
             return
         }
 
-        if (event.isShiftClick) {
-            event.isCancelled = true
+        if (clickedInv == topInv && slot < PAGE_SIZE) {
+            if (event.isShiftClick) {
+                event.isCancelled = true
 
-            val clickedItem = event.currentItem
-            if (clickedItem != null && clickedItem.type != Material.AIR) {
-                val remaining = player.inventory.addItem(clickedItem.clone())
-                if (remaining.isEmpty()) {
-                    event.currentItem = null
+                val clickedItem = event.currentItem
+                if (clickedItem != null && clickedItem.type != Material.AIR) {
+                    val remaining = player.inventory.addItem(clickedItem.clone())
+                    if (remaining.isEmpty()) {
+                        event.currentItem = null
+                        player.playSound(player.location, "ui.button.click_1", 0.5f, 1.2f)
+                    }
+                }
+            } else {
+                val clickedItem = event.currentItem
+                if (clickedItem != null && clickedItem.type != Material.AIR) {
                     player.playSound(player.location, "ui.button.click_1", 0.5f, 1.2f)
                 }
-            }
-        } else {
-            val clickedItem = event.currentItem
-            if (clickedItem != null && clickedItem.type != Material.AIR) {
-                player.playSound(player.location, "ui.button.click_1", 0.5f, 1.2f)
             }
         }
     }
@@ -341,14 +357,14 @@ object MythicalPowderPouch : Listener {
     fun onInventoryClose(event: InventoryCloseEvent) {
         val player = event.player as? Player ?: return
 
-        if (!openPouches.containsKey(player)) return
+        val pouchState = openPouches[player] ?: return
         openPouches.remove(player)
 
         val inv = event.inventory
-
         if (ChatColor.stripColor(event.view.title) != INVENTORY_TITLE) return
+        val currentPagePoints = calculatePagePoints(pouchState.page, pouchState.initialPoints)
 
-        var totalPoints = 0L
+        var remainingPagePoints = 0L
         var invalidItemCount = 0
 
         for (slot in 0 until PAGE_SIZE) {
@@ -359,7 +375,7 @@ object MythicalPowderPouch : Listener {
             if (tier != null) {
                 val amount = item.amount
                 val tierValue = TIER_VALUES[tier] ?: continue
-                totalPoints += tierValue * amount
+                remainingPagePoints += tierValue * amount
 
                 if (DEBUG) {
                     println("[PowderPouch] 스캔: 신비한가루_${tier} x${amount} = ${tierValue * amount} 포인트")
@@ -379,15 +395,51 @@ object MythicalPowderPouch : Listener {
             }
         }
 
-        setPoints(player, totalPoints)
+        val pointsDifference = currentPagePoints - remainingPagePoints
+        val newTotalPoints = pouchState.initialPoints - pointsDifference
+
+        setPoints(player, newTotalPoints)
 
         if (invalidItemCount > 0) {
             player.sendMessage("${ChatColor.YELLOW}파우더가 아닌 아이템 ${invalidItemCount}개가 인벤토리로 반환되었습니다.")
         }
 
         if (DEBUG) {
-            println("[PowderPouch] ${player.name} 파우치 닫기 완료. 총 포인트: ${totalPoints}, 잘못된 아이템: $invalidItemCount")
+            println("[PowderPouch] ${player.name} 파우치 닫기 완료.")
+            println("[PowderPouch] 초기 포인트: ${pouchState.initialPoints}")
+            println("[PowderPouch] 페이지 원래 포인트: $currentPagePoints")
+            println("[PowderPouch] 페이지 남은 포인트: $remainingPagePoints")
+            println("[PowderPouch] 차감된 포인트: $pointsDifference")
+            println("[PowderPouch] 최종 포인트: $newTotalPoints")
+            println("[PowderPouch] 잘못된 아이템: $invalidItemCount")
         }
+    }
+
+    private fun calculatePagePoints(page: Int, totalPoints: Long): Long {
+        val compressed = compressPoints(totalPoints)
+        val itemsToDisplay = mutableListOf<Pair<Int, Long>>()
+
+        for (tier in compressed.keys.sortedDescending()) {
+            val count = compressed[tier] ?: continue
+            val tierValue = TIER_VALUES[tier] ?: continue
+            var remaining = count
+
+            while (remaining > 0) {
+                val stackSize = minOf(remaining, 64L)
+                itemsToDisplay.add(tier to (tierValue * stackSize))
+                remaining -= stackSize
+            }
+        }
+
+        val startIndex = page * PAGE_SIZE
+        val endIndex = minOf(startIndex + PAGE_SIZE, itemsToDisplay.size)
+
+        var pagePoints = 0L
+        for (i in startIndex until endIndex) {
+            pagePoints += itemsToDisplay[i].second
+        }
+
+        return pagePoints
     }
 
     private fun getPowderTierFromItem(item: ItemStack): Int? {
@@ -411,6 +463,114 @@ object MythicalPowderPouch : Listener {
             }
         }
         return null
+    }
+
+    private fun updateNavigation(player: Player, inv: Inventory) {
+        val pouchState = openPouches[player] ?: return
+        val currentPage = pouchState.page
+
+        var itemCount = 0
+        for (slot in 0 until PAGE_SIZE) {
+            val item = inv.getItem(slot)
+            if (item != null && item.type != Material.AIR) {
+                itemCount++
+            }
+        }
+
+        var currentInventoryPoints = 0L
+        for (slot in 0 until PAGE_SIZE) {
+            val item = inv.getItem(slot) ?: continue
+            val tier = getPowderTierFromItem(item)
+            if (tier != null) {
+                val tierValue = TIER_VALUES[tier] ?: continue
+                currentInventoryPoints += tierValue * item.amount
+            }
+        }
+
+        val originalPagePoints = calculatePagePoints(currentPage, pouchState.initialPoints)
+        val totalPoints = pouchState.initialPoints - originalPagePoints + currentInventoryPoints
+
+        val compressed = compressPoints(totalPoints)
+        val totalItemStacks = mutableListOf<Pair<Int, Int>>()
+
+        for (tier in compressed.keys.sortedDescending()) {
+            val count = compressed[tier] ?: continue
+            var remaining = count
+            while (remaining > 0) {
+                val stackSize = minOf(remaining, 64L).toInt()
+                totalItemStacks.add(tier to stackSize)
+                remaining -= stackSize
+            }
+        }
+
+        val hasNextPage = (currentPage + 1) * PAGE_SIZE < totalItemStacks.size
+        val hasPrevPage = currentPage > 0
+
+        val background = ItemStack(Material.BRICK)
+        val bgMeta = background.itemMeta
+        bgMeta?.setCustomModelData(1)
+        bgMeta?.setDisplayName(" ")
+        background.itemMeta = bgMeta
+
+        for (slot in 45..53) {
+            inv.setItem(slot, background.clone())
+        }
+
+        if (hasPrevPage) {
+            val prevButton = ItemStack(Material.ARROW)
+            val meta = prevButton.itemMeta
+            meta?.setCustomModelData(2)
+            meta?.setDisplayName("${ChatColor.GRAY}현재 페이지 ${currentPage + 1}")
+            prevButton.itemMeta = meta
+            inv.setItem(46, prevButton)
+        }
+
+        if (hasNextPage) {
+            val nextButton = ItemStack(Material.ARROW)
+            val meta = nextButton.itemMeta
+            meta?.setCustomModelData(3)
+            meta?.setDisplayName("${ChatColor.GRAY}현재 페이지 ${currentPage + 1}")
+            nextButton.itemMeta = meta
+            inv.setItem(52, nextButton)
+        }
+
+        val totalPages = calculateTotalPages(compressed)
+        val infoButton = ItemStack(Material.EMERALD)
+        val meta = infoButton.itemMeta
+        meta?.setDisplayName("${ChatColor.GRAY}신비한 가루 파우치")
+        meta?.lore = listOf(
+            "${ChatColor.AQUA}총 파우더 수(1티어 기준): ${ChatColor.WHITE}${formatNumber(totalPoints)}",
+            "${ChatColor.AQUA}페이지: ${ChatColor.WHITE}${currentPage + 1} / $totalPages"
+        )
+        infoButton.itemMeta = meta
+        inv.setItem(49, infoButton)
+
+        if (DEBUG) {
+            println("[PowderPouch] 네비게이션 업데이트: 페이지=$currentPage, 아이템 개수=$itemCount, 총 포인트=$totalPoints, 다음 페이지=$hasNextPage")
+        }
+    }
+
+    private fun saveCurrentInventoryState(player: Player, inv: Inventory) {
+        val pouchState = openPouches[player] ?: return
+
+        var currentInventoryPoints = 0L
+        for (slot in 0 until PAGE_SIZE) {
+            val item = inv.getItem(slot) ?: continue
+            val tier = getPowderTierFromItem(item)
+            if (tier != null) {
+                val tierValue = TIER_VALUES[tier] ?: continue
+                currentInventoryPoints += tierValue * item.amount
+            }
+        }
+
+        val originalPagePoints = calculatePagePoints(pouchState.page, pouchState.initialPoints)
+        val newTotalPoints = pouchState.initialPoints - originalPagePoints + currentInventoryPoints
+
+        setPoints(player, newTotalPoints)
+
+        if (DEBUG) {
+            println("[PowderPouch] 인벤토리 상태 저장: 초기=${pouchState.initialPoints}, 페이지 원래=$originalPagePoints, 현재=$currentInventoryPoints, 새 총합=$newTotalPoints")
+        }
     }
 
     @JvmStatic
