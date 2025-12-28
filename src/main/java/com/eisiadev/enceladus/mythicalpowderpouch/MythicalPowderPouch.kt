@@ -90,9 +90,8 @@ object MythicalPowderPouch : Listener {
         return true
     }
 
-    private fun getPoints(player: Player): Long {
-        val uuid = player.uniqueId.toString()
-        return dataConfig.getLong("players.${uuid}", 0L)
+    fun getPoints(player: Player): Long {
+        return dataConfig.getLong("players.${player.uniqueId}", 0L)
     }
 
     private fun setPoints(player: Player, points: Long) {
