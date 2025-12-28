@@ -209,28 +209,34 @@ object MagicFindCalculator {
                     val finalAmount = originalItem.amount * amountMultiplier
 
                     if (finalAmount > 0) {
-                        val sackSlot = findSackSlot(killer, originalItem)
-                        if (sackSlot != null) {
-                            addToSack(killer, sackSlot, finalAmount)
-                            itemsAddedToSack += finalAmount
-                            if (DEBUG) println("[MagicFind] 복구 아이템 가방 추가: ${originalItem.type} x$finalAmount")
+                        val mythicType = MythicBukkit.inst().itemManager.getMythicTypeFromItem(originalItem)
+                        if (mythicType != null && MythicalPowderPouch.addPowderToPouch(killer, mythicType, finalAmount)) {
+                            itemsAddedToSack += finalAmount  // 파우치도 카운트
+                            if (DEBUG) println("[MagicFind] 복구 아이템 파우치 추가: ${mythicType} x$finalAmount")
                         } else {
-                            val maxStackSize = originalItem.maxStackSize
-                            val fullStacks = finalAmount / maxStackSize
-                            val remainder = finalAmount % maxStackSize
+                            val sackSlot = findSackSlot(killer, originalItem)
+                            if (sackSlot != null) {
+                                addToSack(killer, sackSlot, finalAmount)
+                                itemsAddedToSack += finalAmount
+                                if (DEBUG) println("[MagicFind] 복구 아이템 가방 추가: ${originalItem.type} x$finalAmount")
+                            } else {
+                                val maxStackSize = originalItem.maxStackSize
+                                val fullStacks = finalAmount / maxStackSize
+                                val remainder = finalAmount % maxStackSize
 
-                            repeat(fullStacks) {
-                                val stack = originalItem.clone()
-                                stack.amount = maxStackSize
-                                event.drops.add(stack)
+                                repeat(fullStacks) {
+                                    val stack = originalItem.clone()
+                                    stack.amount = maxStackSize
+                                    event.drops.add(stack)
+                                }
+                                if (remainder > 0) {
+                                    val stack = originalItem.clone()
+                                    stack.amount = remainder
+                                    event.drops.add(stack)
+                                }
+                                itemsAddedToWorld += finalAmount
+                                if (DEBUG) println("[MagicFind] 복구 아이템 월드 추가: ${originalItem.type} x$finalAmount")
                             }
-                            if (remainder > 0) {
-                                val stack = originalItem.clone()
-                                stack.amount = remainder
-                                event.drops.add(stack)
-                            }
-                            itemsAddedToWorld += finalAmount
-                            if (DEBUG) println("[MagicFind] 복구 아이템 월드 추가: ${originalItem.type} x$finalAmount")
                         }
                     }
                 }
