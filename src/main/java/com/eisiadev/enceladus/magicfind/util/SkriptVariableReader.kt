@@ -86,17 +86,11 @@ object SkriptVariableReader {
             }
         }
 
-        if (DEBUG && removed > 0) {
-            println("[SkriptVariableReader] 캐시 정리: ${removed}개 항목 삭제 (현재: ${magicFindCache.size}개)")
-        }
     }
 
     @JvmStatic
     fun invalidateCache(player: Player) {
-        val removed = magicFindCache.remove(player.uniqueId.toString())
-        if (DEBUG && removed != null) {
-            println("[SkriptVariableReader] ${player.name}의 캐시 무효화 (이전 값: ${removed.value}%)")
-        }
+        magicFindCache.remove(player.uniqueId.toString())
     }
 
     @JvmStatic

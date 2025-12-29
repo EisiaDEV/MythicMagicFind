@@ -1,11 +1,16 @@
 package com.eisiadev.enceladus.magicfind
 
 import com.eisiadev.enceladus.magicfind.listener.MythicMobDeathListener
+import com.eisiadev.enceladus.magicfind.pouch.PouchIntegration
 import com.eisiadev.enceladus.magicfind.util.MagicFindCalculator
 import org.bukkit.plugin.java.JavaPlugin
-import com.eisiadev.enceladus.mythicalpowderpouch.MythicalPowderPouch
+import com.eisiadev.enceladus.pouches.powder.MythicalPowderPouch
+import com.eisiadev.enceladus.pouches.soul.SoulPouchManager
+import com.eisiadev.enceladus.pouches.rune.RunePouchManager
 
 class MagicFindPlugin : JavaPlugin() {
+
+    val pouchIntegration = PouchIntegration(debug = false)
 
     companion object {
         lateinit var instance: MagicFindPlugin
@@ -36,6 +41,9 @@ class MagicFindPlugin : JavaPlugin() {
         getCommand("magicfind")?.setExecutor(MagicFindCommand())
 
         MythicalPowderPouch.initialize(this)
+        SoulPouchManager.initialize(this)
+        RunePouchManager.initialize(this)
+
         logger.info("MagicFindDrops has been enabled!")
     }
 
