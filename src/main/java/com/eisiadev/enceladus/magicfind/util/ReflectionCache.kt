@@ -5,8 +5,8 @@ import java.lang.reflect.Method
 import java.util.concurrent.ConcurrentHashMap
 
 object ReflectionCache {
-    private val fieldCache = ConcurrentHashMap<String, Field>()
-    private val methodCache = ConcurrentHashMap<String, Method>()
+    private val fieldCache = ConcurrentHashMap<String, Field?>()
+    private val methodCache = ConcurrentHashMap<String, Method?>()
 
     fun getField(clazz: Class<*>, fieldName: String): Field? {
         val key = "${clazz.name}::$fieldName"
@@ -21,7 +21,7 @@ object ReflectionCache {
                     currentClass = currentClass.superclass
                 }
             }
-            throw NoSuchFieldException("Field $fieldName not found in ${clazz.name}")
+            null
         }
     }
 

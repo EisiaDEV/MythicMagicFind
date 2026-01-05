@@ -3,6 +3,8 @@ package com.eisiadev.enceladus.magicfind.pouch
 import com.eisiadev.enceladus.pouches.powder.PowderPouchManager
 import com.eisiadev.enceladus.pouches.rune.RunePouchManager
 import com.eisiadev.enceladus.pouches.soul.SoulPouchManager
+import com.eisiadev.enceladus.pouches.crayon.CrayonPouchManager
+import com.eisiadev.enceladus.pouches.rift.RiftPouchManager
 import org.bukkit.entity.Player
 
 class PouchIntegration(private val debug: Boolean = false) {
@@ -19,6 +21,15 @@ class PouchIntegration(private val debug: Boolean = false) {
         if (tryAddToSoulPouch(player, itemInternalName, amount)) {
             return true
         }
+
+        if (tryAddToCrayonPouch(player, itemInternalName, amount)) {
+            return true
+        }
+
+        if (tryAddToRiftPouch(player, itemInternalName, amount)) {
+            return true
+        }
+
         return false
     }
 
@@ -37,7 +48,7 @@ class PouchIntegration(private val debug: Boolean = false) {
             if (debug) {
                 println("[PouchIntegration] Powder Pouch 추가 중 오류 (무시): ${e.message}")
             }
-            false  // ⚠️ 예외 발생 시 false 반환
+            false
         }
     }
 
@@ -52,7 +63,7 @@ class PouchIntegration(private val debug: Boolean = false) {
             if (debug) {
                 println("[PouchIntegration] Rune Pouch 추가 중 오류 (무시): ${e.message}")
             }
-            false  // ⚠️ 예외 발생 시 false 반환
+            false
         }
     }
 
@@ -67,7 +78,37 @@ class PouchIntegration(private val debug: Boolean = false) {
             if (debug) {
                 println("[PouchIntegration] Soul Pouch 추가 중 오류 (무시): ${e.message}")
             }
-            false  // ⚠️ 예외 발생 시 false 반환
+            false
+        }
+    }
+
+    private fun tryAddToCrayonPouch(player: Player, itemInternalName: String, amount: Int): Boolean {
+        return try {
+            val result = CrayonPouchManager.addCrayonToPouch(player, itemInternalName, amount)
+            if (result && debug) {
+                println("[PouchIntegration] Crayon Pouch에 추가: $itemInternalName x$amount")
+            }
+            result
+        } catch (e: Exception) {
+            if (debug) {
+                println("[PouchIntegration] Crayon Pouch 추가 중 오류 (무시): ${e.message}")
+            }
+            false
+        }
+    }
+
+    private fun tryAddToRiftPouch(player: Player, itemInternalName: String, amount: Int): Boolean {
+        return try {
+            val result = RiftPouchManager.addRiftToPouch(player, itemInternalName, amount)
+            if (result && debug) {
+                println("[PouchIntegration] Rift Pouch에 추가: $itemInternalName x$amount")
+            }
+            result
+        } catch (e: Exception) {
+            if (debug) {
+                println("[PouchIntegration] Rift Pouch 추가 중 오류 (무시): ${e.message}")
+            }
+            false
         }
     }
 }

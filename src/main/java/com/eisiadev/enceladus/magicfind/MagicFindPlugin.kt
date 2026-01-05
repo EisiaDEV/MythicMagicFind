@@ -5,6 +5,7 @@ import com.eisiadev.enceladus.magicfind.pouch.PouchIntegration
 import com.eisiadev.enceladus.magicfind.util.MagicFindCalculator
 import com.eisiadev.enceladus.pouches.crayon.CrayonPouchManager
 import com.eisiadev.enceladus.pouches.powder.PowderPouchManager
+import com.eisiadev.enceladus.pouches.rift.RiftPouchManager
 import com.eisiadev.enceladus.pouches.soul.SoulPouchManager
 import com.eisiadev.enceladus.pouches.rune.RunePouchManager
 import org.bukkit.plugin.java.JavaPlugin
@@ -45,6 +46,7 @@ class MagicFindPlugin : JavaPlugin() {
         SoulPouchManager.initialize(this)
         RunePouchManager.initialize(this)
         CrayonPouchManager.initialize(this)
+        RiftPouchManager.initialize(this)
 
         logger.info("MagicFindDrops has been enabled!")
     }
@@ -54,6 +56,7 @@ class MagicFindPlugin : JavaPlugin() {
         SoulPouchManager.shutdown()
         RunePouchManager.shutdown()
         CrayonPouchManager.shutdown()
+        RiftPouchManager.shutdown()
 
         _instance = null
         logger.info("MagicFindDrops has been disabled!")

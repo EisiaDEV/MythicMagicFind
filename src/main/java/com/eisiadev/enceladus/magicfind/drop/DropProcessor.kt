@@ -34,7 +34,7 @@ class DropProcessor(
     ) {
         if (debug) println("--- DropProcessor Start [Killer: ${killer.name}, MF: $magicFind] ---")
 
-        val mfMultiplier = 1.0 + (magicFind / 100.0)
+        val mfMultiplier = (1.0 + (magicFind / 100.0)).coerceAtLeast(1.0)
 
         try {
             val mobType = event.mobType

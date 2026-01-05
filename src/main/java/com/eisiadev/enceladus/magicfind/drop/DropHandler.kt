@@ -30,8 +30,10 @@ class DropHandler(
         mythicItemObject: Any? = null,
         skipRareDropCheck: Boolean = false
     ): Pair<Int, Int> {
+        val effectiveMfMultiplier = mfMultiplier.coerceAtLeast(1.0)
+
         val (finalChance, amountMultiplier) = calculateChanceAndMultiplier(
-            baseChance, mfMultiplier
+            baseChance, effectiveMfMultiplier
         )
 
         val rolled = ThreadLocalRandom.current().nextDouble()
@@ -69,11 +71,14 @@ class DropHandler(
         baseChance: Double,
         mfMultiplier: Double
     ): Pair<Double, Int> {
+        // ⭐ mfMultiplier는 항상 1.0 이상이어야 함
+        val safeMfMultiplier = mfMultiplier.coerceAtLeast(1.0)
+
         if (baseChance >= 1.0) {
-            return Pair(1.0, floor(mfMultiplier).toInt().coerceAtLeast(1))
+            return Pair(1.0, floor(safeMfMultiplier).toInt().coerceAtLeast(1))
         }
 
-        val totalChance = baseChance * mfMultiplier
+        val totalChance = baseChance * safeMfMultiplier
         return if (totalChance <= 1.0) {
             Pair(totalChance, 1)
         } else {
