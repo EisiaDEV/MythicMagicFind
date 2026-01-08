@@ -1,6 +1,6 @@
-name: MagicFindDrops
+name: MythicMagicFind
 version: ${version}
-main: com.eisiadev.enceladus.magicfind.MagicFindPlugin
+main: com.eisiadev.enceladus.magicfind.MythicMagicFind
 api-version: 1.20
 author: YourName
 depend: [MythicMobs, Skript]
