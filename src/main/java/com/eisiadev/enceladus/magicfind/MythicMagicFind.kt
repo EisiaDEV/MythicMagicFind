@@ -1,8 +1,10 @@
 package com.eisiadev.enceladus.magicfind
 
 import com.eisiadev.enceladus.magicfind.listener.MythicMobDeathListener
+import com.eisiadev.enceladus.magicfind.pity.PityGUIManager
 import com.eisiadev.enceladus.magicfind.pouch.PouchIntegration
 import com.eisiadev.enceladus.magicfind.util.MagicFindCalculator
+import com.eisiadev.enceladus.magicfind.pity.PitySystem
 import com.eisiadev.enceladus.pouches.crayon.CrayonPouchManager
 import com.eisiadev.enceladus.pouches.powder.PowderPouchManager
 import com.eisiadev.enceladus.pouches.rift.RiftPouchManager
@@ -13,6 +15,9 @@ import org.bukkit.plugin.java.JavaPlugin
 class MythicMagicFind : JavaPlugin() {
 
     val pouchIntegration = PouchIntegration(debug = false)
+
+    lateinit var pitySystem: PitySystem
+        private set
 
     companion object {
         private var _instance: MythicMagicFind? = null
@@ -38,6 +43,11 @@ class MythicMagicFind : JavaPlugin() {
         }
 
         MagicFindCalculator.initialize(this)
+
+        pitySystem = PitySystem(this, MagicFindCalculator.getItemGenerator(), debug = false)
+        pitySystem.initialize()
+        PityGUIManager.register()
+
         server.pluginManager.registerEvents(MythicMobDeathListener(), this)
 
         getCommand("magicfind")?.setExecutor(MagicFindCommand())
@@ -52,6 +62,10 @@ class MythicMagicFind : JavaPlugin() {
     }
 
     override fun onDisable() {
+        if (::pitySystem.isInitialized) {
+            pitySystem.shutdown()
+        }
+
         PowderPouchManager.shutdown()
         SoulPouchManager.shutdown()
         RunePouchManager.shutdown()
@@ -62,3 +76,11 @@ class MythicMagicFind : JavaPlugin() {
         logger.info("MythicMagicFind has been disabled!")
     }
 }
+
+// NOTE: MythicMobs does not expose drop chance API.
+// Reflection is intentional and required for MagicFind logic.
+
+// Tested with:
+// - MythicMobs 5.6.2
+// - Skript 2.9.5
+// - Purpur 1.20.2 latest build

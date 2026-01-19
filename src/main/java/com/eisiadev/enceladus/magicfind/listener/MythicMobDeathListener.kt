@@ -1,5 +1,6 @@
 package com.eisiadev.enceladus.magicfind.listener
 
+import com.eisiadev.enceladus.magicfind.MythicMagicFind
 import com.eisiadev.enceladus.magicfind.util.MagicFindCalculator
 import com.eisiadev.enceladus.magicfind.util.SkriptVariableReader
 import io.lumine.mythic.bukkit.events.MythicMobDeathEvent
@@ -17,6 +18,7 @@ class MythicMobDeathListener : Listener {
         if (killer !is Player) return
 
         val magicFind = SkriptVariableReader.getMagicFind(killer)
+        MythicMagicFind.instance.pitySystem.loadPlayerData(killer)
 
         try {
             MagicFindCalculator.modifyDrops(event, killer, magicFind)

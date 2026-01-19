@@ -4,6 +4,7 @@ import com.eisiadev.enceladus.magicfind.config.MagicFindConfig
 import com.eisiadev.enceladus.magicfind.drop.DropProcessor
 import com.eisiadev.enceladus.magicfind.item.ItemGenerator
 import com.eisiadev.enceladus.magicfind.notification.RareDropNotifier
+import com.eisiadev.enceladus.magicfind.pity.PitySystem
 import com.eisiadev.enceladus.magicfind.pouch.PouchIntegration
 import com.eisiadev.enceladus.magicfind.sack.SackIntegration
 import io.lumine.mythic.bukkit.events.MythicMobDeathEvent
@@ -22,6 +23,7 @@ object MagicFindCalculator {
     private lateinit var sackIntegration: SackIntegration
     private lateinit var rareDropNotifier: RareDropNotifier
     private lateinit var dropProcessor: DropProcessor
+    private lateinit var pitySystem: PitySystem
 
     fun initialize(plugin: JavaPlugin) {
         pluginInstance = plugin
@@ -36,6 +38,10 @@ object MagicFindCalculator {
         dropProcessor = DropProcessor(
             config, itemGenerator, pouchIntegration, sackIntegration, rareDropNotifier, DEBUG
         )
+
+        pitySystem = PitySystem(plugin, itemGenerator, DEBUG)
+        pitySystem.initialize()
+
         println("[MagicFind] MagicFindCalculator 초기화 완료")
     }
 
@@ -56,12 +62,6 @@ object MagicFindCalculator {
 
         dropProcessor.processDrops(event, killer, magicFind)
     }
+
+    fun getItemGenerator(): ItemGenerator = itemGenerator
 }
-
-// NOTE: MythicMobs does not expose drop chance API.
-// Reflection is intentional and required for MagicFind logic.
-
-// Tested with:
-// - MythicMobs 5.6.2
-// - Skript 2.9.5
-// - Purpur 1.20.2 latest build

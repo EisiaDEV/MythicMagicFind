@@ -1,5 +1,6 @@
 package com.eisiadev.enceladus.magicfind.drop
 
+import com.eisiadev.enceladus.magicfind.MythicMagicFind
 import com.eisiadev.enceladus.magicfind.config.MagicFindConfig
 import com.eisiadev.enceladus.magicfind.item.ItemGenerator
 import com.eisiadev.enceladus.magicfind.notification.RareDropNotifier
@@ -32,16 +33,31 @@ class DropHandler(
     ): Pair<Int, Int> {
         val effectiveMfMultiplier = mfMultiplier.coerceAtLeast(1.0)
 
-        val (finalChance, amountMultiplier) = calculateChanceAndMultiplier(
-            baseChance, effectiveMfMultiplier
-        )
+        val pitySystem = MythicMagicFind.instance.pitySystem
+        val shouldGuarantee = pitySystem.shouldGuaranteeDrop(killer, itemDef, baseChance, magicFind)
+
+        val (finalChance, amountMultiplier) = if (shouldGuarantee) {
+            Pair(1.0, 1)
+        } else {
+            calculateChanceAndMultiplier(baseChance, effectiveMfMultiplier)
+        }
 
         val rolled = ThreadLocalRandom.current().nextDouble()
         if (debug) {
-            println("DEBUG: '$itemDef' 확률 체크: rolled=${"%.4f".format(rolled)} vs finalChance=${"%.4f".format(finalChance)}")
+            val guaranteeTag = if (shouldGuarantee) " [천장 확정]" else ""
+            println("DEBUG: '$itemDef' 확률 체크: rolled=${"%.4f".format(rolled)} vs finalChance=${"%.4f".format(finalChance)}$guaranteeTag")
         }
 
         if (rolled > finalChance) {
+            if (!skipRareDropCheck && baseChance < 0.01) {
+                val itemDefUpper = itemDef.split("{")[0].uppercase()
+                val isBlacklisted = config.blacklistedItems.contains(itemDefUpper) ||
+                        config.blacklistedItems.contains(itemDef)
+
+                if (!isBlacklisted) {
+                    pitySystem.incrementPityCount(killer, itemDef, baseChance, magicFind)
+                }
+            }
             return Pair(0, 0)
         }
 
@@ -58,6 +74,10 @@ class DropHandler(
             return Pair(0, 0)
         }
 
+        if (baseChance < 0.01) {
+            pitySystem.resetPityCount(killer, itemDef, guaranteed = shouldGuarantee)
+        }
+
         if (!skipRareDropCheck) {
             rareDropNotifier.checkAndAnnounceRareDrop(
                 itemDef, baseChance, finalAmount, killer, magicFind, mythicItemObject
@@ -71,7 +91,6 @@ class DropHandler(
         baseChance: Double,
         mfMultiplier: Double
     ): Pair<Double, Int> {
-        // ⭐ mfMultiplier는 항상 1.0 이상이어야 함
         val safeMfMultiplier = mfMultiplier.coerceAtLeast(1.0)
 
         if (baseChance >= 1.0) {
