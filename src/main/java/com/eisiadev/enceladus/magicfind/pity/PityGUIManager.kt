@@ -83,6 +83,8 @@ object PityGUIManager : Listener {
     }
 
     private fun findItemBaseChance(itemInternalName: String): Double? {
+        var lowestChance: Double? = null
+
         try {
             val mobManager = MythicBukkit.inst().mobManager
             val allMobTypes = mobManager.mobTypes
@@ -114,10 +116,15 @@ object PityGUIManager : Listener {
                         val chance = chanceStr.toDoubleOrNull()
 
                         if (chance != null && chance < 0.01) {
+                            lowestChance = if (lowestChance == null) {
+                                chance
+                            } else {
+                                minOf(lowestChance!!, chance)
+                            }
+
                             if (DEBUG) {
                                 println("[PityGUI] Found $itemInternalName with chance $chance in ${mobType.internalName}")
                             }
-                            return chance
                         }
                     }
 
@@ -128,7 +135,11 @@ object PityGUIManager : Listener {
                     if (isDropTable) {
                         val dropTableChance = findInDropTable(itemDef, itemInternalName)
                         if (dropTableChance != null) {
-                            return dropTableChance
+                            lowestChance = if (lowestChance == null) {
+                                dropTableChance
+                            } else {
+                                minOf(lowestChance!!, dropTableChance)
+                            }
                         }
                     }
                 }
@@ -140,10 +151,12 @@ object PityGUIManager : Listener {
             }
         }
 
-        return null
+        return lowestChance
     }
 
     private fun findInDropTable(dropTableName: String, itemInternalName: String): Double? {
+        var lowestChance: Double? = null
+
         try {
             val dropTableOpt = MythicBukkit.inst().dropManager.getDropTable(dropTableName)
             if (!dropTableOpt.isPresent) return null
@@ -165,15 +178,22 @@ object PityGUIManager : Listener {
                 val internalName = itemGetInternalNameMethod?.invoke(itemField) as? String
 
                 if (internalName == itemInternalName) {
-                    // weight 또는 chance 필드 찾기
                     val weight = ReflectionCache.getFieldDouble(drop, "weight")
                     if (weight != null && weight < 0.01) {
-                        return weight
+                        lowestChance = if (lowestChance == null) {
+                            weight
+                        } else {
+                            minOf(lowestChance!!, weight)
+                        }
                     }
 
                     val chance = ReflectionCache.getFieldDouble(drop, "chance")
                     if (chance != null && chance < 0.01) {
-                        return chance
+                        lowestChance = if (lowestChance == null) {
+                            chance
+                        } else {
+                            minOf(lowestChance!!, chance)
+                        }
                     }
                 }
             }
@@ -181,7 +201,7 @@ object PityGUIManager : Listener {
             if (DEBUG) e.printStackTrace()
         }
 
-        return null
+        return lowestChance
     }
 
     @EventHandler
