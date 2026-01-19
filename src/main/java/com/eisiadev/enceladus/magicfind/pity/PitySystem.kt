@@ -15,9 +15,11 @@ class PitySystem(
 ) {
 
     private val pityStorage = PityStorage(plugin, debug)
-
-    // 메모리 캐시: playerUUID -> (itemInternalName -> count)
     private val memoryCache = ConcurrentHashMap<String, ConcurrentHashMap<String, Int>>()
+
+    fun getOriginalItem(itemInternalName: String): ItemStack? {
+        return itemGenerator.generateItem(itemInternalName, 1)
+    }
 
     fun initialize() {
         pityStorage.initialize()
@@ -31,7 +33,7 @@ class PitySystem(
     }
 
     fun incrementPityCount(player: Player, itemInternalName: String, baseChance: Double, magicFind: Double) {
-        if (baseChance >= 0.01) return // 1% 이상은 천장 미적용
+        if (baseChance >= 0.2) return
 
         val uuid = player.uniqueId.toString()
         val playerData = memoryCache.getOrPut(uuid) { ConcurrentHashMap() }
@@ -50,7 +52,7 @@ class PitySystem(
     }
 
     fun shouldGuaranteeDrop(player: Player, itemInternalName: String, baseChance: Double, magicFind: Double): Boolean {
-        if (baseChance >= 0.01) return false
+        if (baseChance >= 0.2) return false
 
         val uuid = player.uniqueId.toString()
         val playerData = memoryCache.getOrPut(uuid) { ConcurrentHashMap() }
@@ -70,7 +72,7 @@ class PitySystem(
             pityStorage.markDirty(uuid)
 
             if (debug) {
-                val reason = if (guaranteed) "[천장 확정]" else "[일반 드롭]"
+                val reason = if (guaranteed) "[ 천장 확정 ]" else "[ 일반 드롭 ]"
                 println("[PitySystem] ${player.name} - $itemInternalName 카운트 리셋 $reason")
             }
         }

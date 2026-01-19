@@ -12,7 +12,7 @@ class PityStorage(
 ) {
 
     private val pityDataFolder = File(plugin.dataFolder, "pity")
-    private val dirtyFlags = ConcurrentHashMap.newKeySet<String>() // UUID set
+    private val dirtyFlags = ConcurrentHashMap.newKeySet<String>()
     private var memoryCache: ConcurrentHashMap<String, ConcurrentHashMap<String, Int>>? = null
 
     private var saveTaskId: Int = -1

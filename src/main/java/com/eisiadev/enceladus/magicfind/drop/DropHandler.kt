@@ -49,7 +49,7 @@ class DropHandler(
         }
 
         if (rolled > finalChance) {
-            if (!skipRareDropCheck && baseChance < 0.01) {
+            if (!skipRareDropCheck && baseChance < 0.2) {
                 val itemDefUpper = itemDef.split("{")[0].uppercase()
                 val isBlacklisted = config.blacklistedItems.contains(itemDefUpper) ||
                         config.blacklistedItems.contains(itemDef)
@@ -74,7 +74,7 @@ class DropHandler(
             return Pair(0, 0)
         }
 
-        if (baseChance < 0.01) {
+        if (baseChance < 0.2) {
             pitySystem.resetPityCount(killer, itemDef, guaranteed = shouldGuarantee)
         }
 
