@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 object PityGUIManager : Listener {
 
-    private const val GUI_TITLE = "천장 시스템"
+    private const val GUI_TITLE = "RNG METER"
     private const val DEBUG = false
     private const val ITEMS_PER_PAGE = 45
 
@@ -84,7 +84,7 @@ object PityGUIManager : Listener {
         if (validItems.isEmpty()) {
             val infoItem = ItemStack(Material.PAPER).apply {
                 val meta = itemMeta
-                meta?.setDisplayName("${ChatColor.YELLOW}천장 시스템 안내")
+                meta?.setDisplayName("${ChatColor.YELLOW}RNG METER INFO")
                 meta?.lore = listOf(
                     "${ChatColor.GRAY}1% 미만 확률의 아이템을",
                     "${ChatColor.GRAY}한 번이라도 시도하면",
@@ -118,7 +118,7 @@ object PityGUIManager : Listener {
                 meta?.lore = listOf(
                     "${ChatColor.GRAY}${currentPage}페이지로 이동"
                 )
-                meta?.setCustomModelData(1)
+                meta?.setCustomModelData(2)
                 itemMeta = meta
             }
             inv.setItem(46, prevButton)
@@ -142,7 +142,7 @@ object PityGUIManager : Listener {
                 meta?.lore = listOf(
                     "${ChatColor.GRAY}${currentPage + 2}페이지로 이동"
                 )
-                meta?.setCustomModelData(2)
+                meta?.setCustomModelData(3)
                 itemMeta = meta
             }
             inv.setItem(52, nextButton)
