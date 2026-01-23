@@ -8,9 +8,12 @@ blacklist:
     - "슬픔의잔재"
     - "볼타"
     - "플라즈마"
+    - "악마의눈"
+    - "리프트샤드_1"
   droptables:
     - "기본몹드롭"
     - "디멘션드롭"
+    - "리프트드롭"
     - "슬레이어_파우더"
     - "슬레이어_파우더_6티어"
     - "슬레이어_크레용"
@@ -25,15 +28,21 @@ blacklist:
     - "포기한것"
     - "파란고래"
     - "널템"
-    - "세피로트드롭"
-    - "클리포트드롭"
+    - "세피로트드롭_1"
+    - "클리포트드롭_1"
+    - "세피로트드롭_2"
+    - "클리포트드롭_2"
+    - "세피로트드롭_3"
+    - "클리포트드롭_3"
+    - "세피로트드롭_4"
+    - "클리포트드롭_4"
 
 rare_drops:
   occasional:
     enabled: true
     min_chance: 0.10      # 10%
     max_chance: 0.20      # 20%
-    message: "&9Occasional DROP! {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
+    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
     sound: "slayerdrop.occasional_drop"
     volume: 1.0
     pitch: 1.0
@@ -43,7 +52,7 @@ rare_drops:
     enabled: true
     min_chance: 0.02      # 2%
     max_chance: 0.10      # 10%
-    message: "&5Rare DROP! {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
+    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
     sound: "slayerdrop.occasional_drop"
     volume: 1.0
     pitch: 1.0
@@ -53,7 +62,7 @@ rare_drops:
     enabled: true
     min_chance: 0.001     # 0.1%
     max_chance: 0.02      # 2%
-    message: "&6Extraordinary DROP! {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
+    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
     sound: "slayerdrop.rare_drop"
     volume: 1.0
     pitch: 1.0
@@ -63,17 +72,17 @@ rare_drops:
     enabled: true
     min_chance: 0.0002    # 0.02%
     max_chance: 0.001     # 0.1%
-    message: "&dPray RNGesus DROP! {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f&l{player}"
+    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f{player}"
     sound: "slayerdrop.pray_rngesus_drop"
     volume: 1.0
     pitch: 1.0
-    broadcast: true
+    broadcast: false
 
   rngesus_incarnate:
     enabled: true
     min_chance: 0.00005   # 0.005%
     max_chance: 0.0002    # 0.02%
-    message: "&cRNGesus Incarnate DROP! {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f&l{player}"
+    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f{player}"
     sound: "slayerdrop.pray_rngesus_drop"
     volume: 1.0
     pitch: 1.0
@@ -83,7 +92,7 @@ rare_drops:
     enabled: true
     min_chance: 0.000005  # 0.0005%
     max_chance: 0.00005   # 0.005%
-    message: "&4RNGesus Insane DROP! {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f&l{player}"
+    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f{player}"
     sound: "slayerdrop.rngesus_incarnate_drop"
     volume: 1.0
     pitch: 1.0
@@ -93,7 +102,7 @@ rare_drops:
     enabled: true
     min_chance: 0.0       # 0%
     max_chance: 0.000005  # 0.0005%
-    message: "&5&lRNGesus Unleashed DROP! &r{item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f&l{player}"
+    message: "&f &r{item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f{player}"
     sound: "slayerdrop.rngesus_incarnate_drop"
     volume: 1.0
     pitch: 1.0
