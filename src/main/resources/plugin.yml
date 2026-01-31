@@ -11,6 +11,14 @@ commands:
     description: Magic Find command
     usage: /magicfind reload
     permission: magicfind.admin
+  mfnotify:
+    description: Toggle magic find notifications
+    usage: |
+      /<command> list - Show all notification settings
+      /<command> toggle <tier> - Toggle a specific tier
+      /<command> enable <tier|all> - Enable notifications
+      /<command> disable <tier|all> - Disable notifications
+    aliases: [mfn, magicfindnotify]
 
 permissions:
   magicfind.admin:

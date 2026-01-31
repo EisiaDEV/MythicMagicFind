@@ -1,6 +1,10 @@
 package com.eisiadev.enceladus.magicfind
 
+import com.eisiadev.enceladus.magicfind.commands.NotificationToggleCommand
+import com.eisiadev.enceladus.magicfind.config.MagicFindConfig
 import com.eisiadev.enceladus.magicfind.listener.MythicMobDeathListener
+import com.eisiadev.enceladus.magicfind.notification.PlayerNotificationManager
+import com.eisiadev.enceladus.magicfind.notification.RareDropNotifier
 import com.eisiadev.enceladus.magicfind.pity.PityGUIManager
 import com.eisiadev.enceladus.magicfind.pouch.PouchIntegration
 import com.eisiadev.enceladus.magicfind.util.MagicFindCalculator
@@ -15,6 +19,10 @@ import org.bukkit.plugin.java.JavaPlugin
 class MythicMagicFind : JavaPlugin() {
 
     val pouchIntegration = PouchIntegration(debug = false)
+
+    private lateinit var magicFindConfig: MagicFindConfig
+    private lateinit var notificationManager: PlayerNotificationManager
+    private lateinit var rareDropNotifier: RareDropNotifier
 
     lateinit var pitySystem: PitySystem
         private set
@@ -42,7 +50,12 @@ class MythicMagicFind : JavaPlugin() {
             return
         }
 
-        MagicFindCalculator.initialize(this)
+        // ✅ NotificationManager를 먼저 생성
+        magicFindConfig = MagicFindConfig(this)
+        notificationManager = PlayerNotificationManager(this)
+
+        // ✅ MagicFindCalculator 초기화 (내부에서 NotificationManager 생성하지 않도록)
+        MagicFindCalculator.initialize(this, notificationManager)
 
         pitySystem = PitySystem(this, MagicFindCalculator.getItemGenerator(), debug = false)
         pitySystem.initialize()
@@ -58,6 +71,18 @@ class MythicMagicFind : JavaPlugin() {
         CrayonPouchManager.initialize(this)
         RiftPouchManager.initialize(this)
 
+        rareDropNotifier = RareDropNotifier(
+            config = magicFindConfig,
+            notificationManager = notificationManager,
+            debug = config.getBoolean("debug", false)
+        )
+
+        getCommand("mfnotify")?.let { cmd ->
+            val commandHandler = NotificationToggleCommand(magicFindConfig, notificationManager)
+            cmd.setExecutor(commandHandler)
+            cmd.tabCompleter = commandHandler
+        }
+
         logger.info("MythicMagicFind has been enabled!")
     }
 
@@ -71,9 +96,22 @@ class MythicMagicFind : JavaPlugin() {
         RunePouchManager.shutdown()
         CrayonPouchManager.shutdown()
         RiftPouchManager.shutdown()
+        notificationManager.saveData()
 
         _instance = null
         logger.info("MythicMagicFind has been disabled!")
+    }
+
+    fun getRareDropNotifier(): RareDropNotifier {
+        return rareDropNotifier
+    }
+
+    fun getNotificationManager(): PlayerNotificationManager {
+        return notificationManager
+    }
+
+    fun getMagicFindConfig(): MagicFindConfig {
+        return magicFindConfig
     }
 }
 

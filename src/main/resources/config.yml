@@ -43,9 +43,9 @@ rare_drops:
     min_chance: 0.10      # 10%
     max_chance: 0.20      # 20%
     message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
-    sound: "slayerdrop.occasional_drop"
+    sound: "entity.experience_orb.pickup"
     volume: 1.0
-    pitch: 1.0
+    pitch: 2.0
     broadcast: false      # false = 띄운 플레이어만, true = 전체 공지
 
   rare:
@@ -53,9 +53,9 @@ rare_drops:
     min_chance: 0.02      # 2%
     max_chance: 0.10      # 10%
     message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
-    sound: "slayerdrop.occasional_drop"
+    sound: "entity.experience_orb.pickup"
     volume: 1.0
-    pitch: 1.0
+    pitch: 2.0
     broadcast: false
 
   extraordinary:
@@ -63,17 +63,17 @@ rare_drops:
     min_chance: 0.001     # 0.1%
     max_chance: 0.02      # 2%
     message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
-    sound: "slayerdrop.rare_drop"
+    sound: "entity.experience_orb.pickup"
     volume: 1.0
-    pitch: 1.0
+    pitch: 2.0
     broadcast: false
 
   pray_rngesus:
     enabled: true
     min_chance: 0.0002    # 0.02%
     max_chance: 0.001     # 0.1%
-    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f{player}"
-    sound: "slayerdrop.pray_rngesus_drop"
+    message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3]"
+    sound: "slayerdrop.rare_drop"
     volume: 1.0
     pitch: 1.0
     broadcast: false
@@ -93,7 +93,7 @@ rare_drops:
     min_chance: 0.000005  # 0.0005%
     max_chance: 0.00005   # 0.005%
     message: "&f {item} &ex{amount} &7[ &f{chance} &7] &3[ &b신비의 추적 +{magicfind} &3] &f- &f{player}"
-    sound: "slayerdrop.rngesus_incarnate_drop"
+    sound: "slayerdrop.pray_rngesus_drop"
     volume: 1.0
     pitch: 1.0
     broadcast: true

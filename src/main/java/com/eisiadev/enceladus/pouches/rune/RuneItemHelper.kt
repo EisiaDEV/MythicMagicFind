@@ -13,7 +13,8 @@ object RuneItemHelper {
         1 to "빈룬",
         2 to "룬가방",
         3 to "거대한룬가방",
-        4 to "룬정수"
+        4 to "룬정수",
+        5 to "루닉스프라이트"
     )
     
     private val ITEM_TO_TIER = TIER_ITEMS.entries.associate { (tier, name) -> name to tier }

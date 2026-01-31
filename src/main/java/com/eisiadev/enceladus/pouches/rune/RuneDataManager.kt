@@ -20,13 +20,15 @@ class RuneDataManager(plugin: JavaPlugin) :
                 "빈룬" to 1,
                 "룬가방" to 2,
                 "거대한룬가방" to 3,
-                "룬정수" to 4
+                "룬정수" to 4,
+                "루닉스프라이트" to 5
             ),
             conversionRates = listOf(
                 1L,
                 100L,
                 10000L,
-                1000000L
+                1000000L,
+                100000000L
             )
         )
     }
@@ -36,7 +38,7 @@ class RuneDataManager(plugin: JavaPlugin) :
         val result = mutableMapOf<Int, Long>()
         val config = getTierConfig()
         
-        for (tier in 4 downTo 1) {
+        for (tier in 5 downTo 1) {
             val tierValue = config.getTierValue(tier)
             if (remaining >= tierValue) {
                 val count = remaining / tierValue

@@ -86,7 +86,7 @@ object PityGUIManager : Listener {
                 val meta = itemMeta
                 meta?.setDisplayName("${ChatColor.YELLOW}RNG METER INFO")
                 meta?.lore = listOf(
-                    "${ChatColor.GRAY}1% 미만 확률의 아이템을",
+                    "${ChatColor.GRAY}20% 미만 확률의 아이템을",
                     "${ChatColor.GRAY}한 번이라도 시도하면",
                     "${ChatColor.GRAY}이곳에 표시됩니다."
                 )
