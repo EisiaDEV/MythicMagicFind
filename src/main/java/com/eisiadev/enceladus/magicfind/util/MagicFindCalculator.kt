@@ -1,6 +1,8 @@
 package com.eisiadev.enceladus.magicfind.util
 
 import com.eisiadev.enceladus.magicfind.config.MagicFindConfig
+import com.eisiadev.enceladus.magicfind.contribution.ContributionConfig
+import com.eisiadev.enceladus.magicfind.contribution.ContributorData
 import com.eisiadev.enceladus.magicfind.drop.DropProcessor
 import com.eisiadev.enceladus.magicfind.item.ItemGenerator
 import com.eisiadev.enceladus.magicfind.notification.PlayerNotificationManager
@@ -12,6 +14,7 @@ import io.lumine.mythic.bukkit.events.MythicMobDeathEvent
 import org.bukkit.entity.Player
 import org.bukkit.metadata.FixedMetadataValue
 import org.bukkit.plugin.java.JavaPlugin
+import java.util.UUID
 
 object MagicFindCalculator {
 
@@ -70,4 +73,49 @@ object MagicFindCalculator {
     fun getItemGenerator(): ItemGenerator = itemGenerator
 
     fun getNotificationManager(): PlayerNotificationManager = notificationManager
+
+    fun modifyDropsForParty(
+        event: MythicMobDeathEvent,
+        contributors: Map<UUID, ContributorData>,
+        contributionRatios: Map<UUID, Double>,
+        avgMagicFind: Double,
+        contributionConfig: ContributionConfig
+    ) {
+        if (event.entity.hasMetadata("magicfind_processed")) {
+            if (DEBUG) println("[MagicFind] ⚠️ 이미 처리된 몹, 무시")
+            return
+        }
+        event.entity.setMetadata(
+            "magicfind_processed",
+            FixedMetadataValue(pluginInstance, true)
+        )
+
+        val primaryPlayer = contributors.values.maxByOrNull { it.damage }?.player ?: return
+        dropProcessor.processDrops(event, primaryPlayer, avgMagicFind)
+
+        val generatedDrops = ArrayList(event.drops)
+        event.drops.clear()
+
+        contributors.forEach { (uuid, data) ->
+            val player = data.player
+            if (!player.isOnline) return@forEach
+
+            val contributionPercent = (contributionRatios[uuid] ?: 0.0) * 100
+            val dropMultiplier = contributionConfig.getDropMultiplier(contributionPercent)
+
+            if (dropMultiplier <= 0.0) return@forEach
+
+            generatedDrops.forEach { itemStack ->
+                val adjustedAmount = (itemStack.amount * dropMultiplier).toInt().coerceAtLeast(1)
+
+                val cloned = itemStack.clone()
+                cloned.amount = adjustedAmount
+
+                val remaining = player.inventory.addItem(cloned)
+                remaining.values.forEach { leftover ->
+                    player.world.dropItemNaturally(player.location, leftover)
+                }
+            }
+        }
+    }
 }

@@ -2,6 +2,9 @@ package com.eisiadev.enceladus.magicfind
 
 import com.eisiadev.enceladus.magicfind.commands.NotificationToggleCommand
 import com.eisiadev.enceladus.magicfind.config.MagicFindConfig
+import com.eisiadev.enceladus.magicfind.contribution.ContributionConfig
+import com.eisiadev.enceladus.magicfind.contribution.MobContributionTracker
+import com.eisiadev.enceladus.magicfind.listener.DamageTrackingListener
 import com.eisiadev.enceladus.magicfind.listener.MythicMobDeathListener
 import com.eisiadev.enceladus.magicfind.notification.PlayerNotificationManager
 import com.eisiadev.enceladus.magicfind.notification.RareDropNotifier
@@ -14,6 +17,7 @@ import com.eisiadev.enceladus.pouches.powder.PowderPouchManager
 import com.eisiadev.enceladus.pouches.rift.RiftPouchManager
 import com.eisiadev.enceladus.pouches.soul.SoulPouchManager
 import com.eisiadev.enceladus.pouches.rune.RunePouchManager
+import org.bukkit.Bukkit
 import org.bukkit.plugin.java.JavaPlugin
 
 class MythicMagicFind : JavaPlugin() {
@@ -23,6 +27,7 @@ class MythicMagicFind : JavaPlugin() {
     private lateinit var magicFindConfig: MagicFindConfig
     private lateinit var notificationManager: PlayerNotificationManager
     private lateinit var rareDropNotifier: RareDropNotifier
+    private lateinit var contributionConfig: ContributionConfig
 
     lateinit var pitySystem: PitySystem
         private set
@@ -50,18 +55,16 @@ class MythicMagicFind : JavaPlugin() {
             return
         }
 
-        // ✅ NotificationManager를 먼저 생성
         magicFindConfig = MagicFindConfig(this)
         notificationManager = PlayerNotificationManager(this)
 
-        // ✅ MagicFindCalculator 초기화 (내부에서 NotificationManager 생성하지 않도록)
         MagicFindCalculator.initialize(this, notificationManager)
 
         pitySystem = PitySystem(this, MagicFindCalculator.getItemGenerator(), debug = false)
         pitySystem.initialize()
         PityGUIManager.register()
 
-        server.pluginManager.registerEvents(MythicMobDeathListener(), this)
+        setupContributionSystem()
 
         getCommand("magicfind")?.setExecutor(MagicFindCommand())
 
@@ -102,6 +105,27 @@ class MythicMagicFind : JavaPlugin() {
         logger.info("MythicMagicFind has been disabled!")
     }
 
+    private fun setupContributionSystem() {
+
+        contributionConfig = ContributionConfig(this)
+        contributionConfig.loadConfig()
+
+        val damageTrackingListener = DamageTrackingListener(contributionConfig)
+        Bukkit.getPluginManager().registerEvents(damageTrackingListener, this)
+
+        val mythicMobDeathListener = MythicMobDeathListener(contributionConfig)
+        Bukkit.getPluginManager().registerEvents(mythicMobDeathListener, this)
+
+        val cleanupInterval = contributionConfig.getCleanupIntervalSeconds() * 20L
+        val cleanupTimeout = contributionConfig.getCleanupTimeoutSeconds() * 1000L
+
+        Bukkit.getScheduler().runTaskTimerAsynchronously(this, Runnable {
+            MobContributionTracker.cleanupOldEntries(cleanupTimeout)
+        }, cleanupInterval, cleanupInterval)
+
+        logger.info("[ContributionSystem] 기여도 시스템 초기화 완료")
+    }
+
     fun getRareDropNotifier(): RareDropNotifier {
         return rareDropNotifier
     }
@@ -112,6 +136,10 @@ class MythicMagicFind : JavaPlugin() {
 
     fun getMagicFindConfig(): MagicFindConfig {
         return magicFindConfig
+    }
+
+    fun getContributionConfig(): ContributionConfig {
+        return contributionConfig
     }
 }
 

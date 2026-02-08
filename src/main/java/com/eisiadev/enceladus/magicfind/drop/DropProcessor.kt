@@ -13,9 +13,6 @@ import org.bukkit.entity.Player
 import java.lang.reflect.Method
 import java.util.concurrent.ThreadLocalRandom
 
-/**
- * 드롭 처리 로직을 담당하는 클래스
- */
 class DropProcessor(
     private val config: MagicFindConfig,
     private val itemGenerator: ItemGenerator,
@@ -102,7 +99,6 @@ class DropProcessor(
         val amountStr = parts.getOrNull(1) ?: "1"
         val chanceStr = parts.getOrNull(2) ?: "1.0"
 
-        // ⭐ 수정된 드롭테이블 판별 로직
         val isDropTable = !itemDef.contains("{") &&
                 Material.getMaterial(itemDef.uppercase()) == null &&
                 MythicBukkit.inst().dropManager.getDropTable(itemDef).isPresent  // ✅ 추가!

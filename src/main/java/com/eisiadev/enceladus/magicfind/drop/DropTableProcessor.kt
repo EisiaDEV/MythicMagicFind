@@ -10,9 +10,6 @@ import io.lumine.mythic.bukkit.events.MythicMobDeathEvent
 import org.bukkit.entity.Player
 import java.lang.reflect.Method
 
-/**
- * 드롭 테이블 처리를 담당하는 클래스
- */
 class DropTableProcessor(
     private val config: MagicFindConfig,
     private val itemGenerator: ItemGenerator,
@@ -110,12 +107,10 @@ class DropTableProcessor(
     }
 
     private fun getChanceFromDrop(drop: Any): Double {
-        // Try weight field first
         ReflectionCache.getFieldValue(drop, "weight")?.let { weight ->
             (weight as? Number)?.toDouble()?.let { if (it < 1.0) return it }
         }
 
-        // Try getWeight method
         try {
             val method = ReflectionCache.getMethod(drop.javaClass, "getWeight")
             (method?.invoke(drop) as? Number)?.toDouble()?.let {
@@ -125,7 +120,6 @@ class DropTableProcessor(
             if (debug) e.printStackTrace()
         }
 
-        // Try chance field
         ReflectionCache.getFieldValue(drop, "chance")?.let { chance ->
             (chance as? Number)?.toDouble()?.let { if (it < 1.0) return it }
         }
